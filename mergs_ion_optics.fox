@@ -190,10 +190,14 @@ ENDPROCEDURE;
 
 { calculate key performance metrics of the map }
 PROCEDURE evaluate_spectrometer;
-    VARIABLE sum_x_squared 1;
     VARIABLE count 1;
+    VARIABLE sum_x 1;
+    VARIABLE sum_x2 1;
+    VARIABLE d_energy 1;
     VARIABLE i_energy 1;
     VARIABLE i_ray 1;
+    VARIABLE spot_size 1;
+    VARIABLE dispersion 1;
     VARIABLE numerator 1;
     VARIABLE denominator 1;
     VARIABLE min_x 1;
@@ -204,15 +208,20 @@ PROCEDURE evaluate_spectrometer;
     transform_rays;
 
     LOOP i_energy 1 num_energies;
-        sum_x_squared := 0;
+        d_energy := beam_d_energies(i_energy);
         count := 0;
+        sum_x := 0;
+        sum_x2 := 0;
         LOOP i_ray 1 num_rays;
-            IF input_rays(i_ray,6)=beam_d_energies(i_energy);
-                sum_x_squared := sum_x_squared + output_rays(i_ray,1)^2; {m^2}
+            IF input_rays(i_ray,6)=d_energy;
                 count := count + 1;
+                sum_x := sum_x + output_rays(i_ray,1); {m}
+                sum_x2 := sum_x2 + output_rays(i_ray,1)^2; {m^2}
             ENDIF;
         ENDLOOP;
-        resolution(i_energy) := SQRT(sum_x_squared/count)/ME(1,6)*2.355; {(relative)}
+        spot_size := SQRT(sum_x2/count - (sum_x/count)^2);
+        dispersion := ME(1,6) + 2*ME(1,66)*d_energy + 3*ME(1,666)*d_energy^2;
+        resolution(i_energy) := spot_size*2.355/dispersion; {(relative)}
     ENDLOOP;
 
     focal_plane_tilt := ATAN(-ME(1,26)/ME(2,2)/ME(1,6)); {rad}
