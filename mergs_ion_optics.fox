@@ -56,19 +56,19 @@ VARIABLE focal_plane_height 1;
     - x and y are position in meters.
     - a and b are indicate x and y components of normalized momentum. ({a,b} = p_{x,y}/abs(p))
     - t is time of flight offset
-    - energy, mass, and charge are relative.
+    - d_energy, d_mass, and d_charge are relative.
 }
-PROCEDURE SET_RAY x a y b t energy mass charge color;
-    SR x a y b t energy mass charge color;
+PROCEDURE SET_RAY x a y b t d_energy d_mass d_charge color;
+    SR x a y b t d_energy d_mass d_charge color;
     num_rays := num_rays + 1;
     input_rays(num_rays,1) := x;
     input_rays(num_rays,2) := a;
     input_rays(num_rays,3) := y;
     input_rays(num_rays,4) := b;
     input_rays(num_rays,5) := t;
-    input_rays(num_rays,6) := energy;
-    input_rays(num_rays,7) := mass;
-    input_rays(num_rays,8) := charge;
+    input_rays(num_rays,6) := d_energy;
+    input_rays(num_rays,7) := d_mass;
+    input_rays(num_rays,8) := d_charge;
 ENDPROCEDURE;
 
 { Clear the rays currently in the system. }
@@ -243,18 +243,26 @@ PROCEDURE evaluate_spectrometer;
 
 {============ CORE FUNCTIONS ============}
 
-PROCEDURE gen_rays energy color;
+PROCEDURE gen_rays d_energy color;
+    VARIABLE momentum_ratio 1;
     VARIABLE x_foil 1;
     VARIABLE y_foil 1;
     VARIABLE x_aperture 1;
     VARIABLE y_aperture 1;
+    VARIABLE x_angle 1;
+    VARIABLE y_angle 1;
+
+    momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+
     LOOP x_foil -foil_width/2 foil_width/2 foil_width/2;
         LOOP y_foil -foil_height/2 foil_height/2 foil_height/2;
             LOOP x_aperture -aperture_width/2 aperture_width/2 aperture_width/2;
                 LOOP y_aperture -aperture_height/2 aperture_height/2 aperture_height/2;
-                    SET_RAY x_foil (x_aperture-x_foil)/p_drift_pre_aperture
-                            y_foil (y_aperture-y_foil)/p_drift_pre_aperture
-                            0 energy 0 0 color;
+                    x_angle := ATAN((x_aperture-x_foil)/p_drift_pre_aperture);
+                    y_angle := ATAN((y_aperture-y_foil)/p_drift_pre_aperture);
+                    SET_RAY x_foil momentum_ratio*SIN(x_angle)
+                            y_foil momentum_ratio*SIN(y_angle)
+                            0 d_energy 0 0 color;
                 ENDLOOP;
             ENDLOOP;
         ENDLOOP;
