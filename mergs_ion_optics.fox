@@ -18,7 +18,7 @@ VARIABLE p_shape_out_2 1;
 VARIABLE p_shape_out_3 1;
 VARIABLE shape_zero 1 3;
 
-VARIABLE p_bend_radius 1;
+VARIABLE p_dipole_field 1;
 VARIABLE p_bend_angle 1;
 VARIABLE p_drift_pre_aperture 1;
 VARIABLE p_drift_post_aperture 1;
@@ -270,12 +270,21 @@ PROCEDURE gen_rays d_energy color;
 ENDPROCEDURE;
 
 PROCEDURE config_spectrometer;
-    CONFIG_ORDER_AND_VARIABLES 3 3 0; {3rd-order calculation, account for chromatic effects, no "knobs"}
+    VARIABLE order 1;
+
+    order := 2; {{CONTROL}}
+    CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
     central_energy := 16; {MeV}
     CONFIG_AS_ELECTRON_BEAM central_energy;
 ENDPROCEDURE;
 
 PROCEDURE elt_spectrometer;
+    VARIABLE central_momentum 1;
+    VARIABLE bend_radius 1;
+
+    central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
+    bend_radius := central_momentum/(1.602e-19*p_dipole_field);
+
     shape_in(1) := p_shape_in_1;
     shape_in(2) := p_shape_in_2;
     shape_in(3) := p_shape_in_3;
@@ -309,7 +318,7 @@ PROCEDURE elt_spectrometer;
     ELT_DRIFT_LENGTH p_drift_pre_bend;
 
     ELT_BENDING
-        p_bend_radius p_bend_angle 0.075
+        bend_radius p_bend_angle 0.075
         shape_zero shape_in shape_out 3;
 
     ELT_DRIFT_LENGTH p_drift_post_bend;
@@ -340,13 +349,13 @@ PROCEDURE main;
     config_spectrometer;
 
     { set upper bound for the foil dimensions }
-    foil_width := 0.02;
-    foil_height := 0.04;
+    foil_width := 0.015;
+    foil_height := 0.03;
     aperture_width := 0.02;
     aperture_height := 0.04;
 
     { set the ion-optic parameters }
-    p_bend_radius := 0.53; {{PARAM |min=0.02 |max=inf |bias=0 |unit=m}}
+    p_dipole_field := 0.1; {{PARAM |min=0 |max=0.5 |bias=-1/0.1 |unit=T}}
     p_bend_angle := 110; {{PARAM |min=0 |max=120 |bias=-1/360 |unit=deg}}
     p_drift_pre_aperture := 0.20;
     p_drift_post_aperture := 0.05; {{PARAM |min=0 |max=1 |bias=-1/1.00 |unit=m}}
@@ -378,7 +387,7 @@ PROCEDURE main;
         4 - Levenberg-Marquardt }
     optimizer := 4;
 
-    y_scale := 1;
+    y_scale := 0;
 
     FIT p_m5c_hex;
         UNITY_MAP;
@@ -405,7 +414,7 @@ PROCEDURE main;
         out := 0;
     ENDIF;
 
-    WRITE out 'p_bend_radius' p_bend_radius;
+    WRITE out 'p_dipole_field' p_dipole_field;
     WRITE out 'p_bend_angle' p_bend_angle;
     WRITE out 'p_drift_post_aperture' p_drift_post_aperture;
     WRITE out 'p_drift_pre_bend' p_drift_pre_bend;
