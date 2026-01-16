@@ -51,6 +51,7 @@ VARIABLE focal_plane_tilt 1;
 VARIABLE focal_plane_bend 1;
 VARIABLE focal_plane_length 1;
 VARIABLE focal_plane_height 1;
+VARIABLE system_length 1;
 
 {============ UTILITY FUNCTIONS ============}
 
@@ -254,6 +255,10 @@ PROCEDURE evaluate_spectrometer;
     ENDLOOP;
     focal_plane_length := max_x - min_x; {m}
     focal_plane_height := max_y - min_y; {m}
+
+    system_length := p_drift_post_aperture + p_drift_m5a_m5b +
+                     p_drift_pre_bend + p_drift_post_bend +
+                     p_drift_pre_hodoscope; {m}
  ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
@@ -295,7 +300,7 @@ PROCEDURE config_spectrometer;
     VARIABLE order 1;
     VARIABLE i 1;
 
-    order := 2; {{CONTROL}}
+    order := 2;
     CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
     central_energy := 16; {MeV}
     CONFIG_AS_ELECTRON_BEAM central_energy;
@@ -368,13 +373,14 @@ ENDPROCEDURE;
 PROCEDURE main;
     VARIABLE output_mode 1;
     VARIABLE out 1;
+    VARIABLE out_filename 100;
     VARIABLE y_scale 1;
     VARIABLE objective 1;
     VARIABLE optimizer 1;
     VARIABLE i 1;
 
     { set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
-    output_mode := 1; {{CONTROL}}
+    output_mode := 1;
 
     { ---- input parameters ---- }
 
@@ -387,7 +393,7 @@ PROCEDURE main;
     aperture_height := 0.04;
 
     { set the ion-optic parameters }
-    p_dipole_field := 0.1; {{PARAM |min=0 |max=0.5 |bias=-1/0.1 |unit=T}}
+    p_dipole_field := 0.1; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.1 |unit=T}}
     p_bend_angle := 110; {{PARAM |min=0 |max=120 |bias=-1/360 |unit=deg}}
     p_drift_pre_aperture := 0.20;
     p_drift_post_aperture := 0.05; {{PARAM |min=0 |max=1 |bias=-1/1.00 |unit=m}}
@@ -396,11 +402,11 @@ PROCEDURE main;
     p_drift_post_bend := 0.20; {{PARAM |min=0 |max=1 |bias=-1/1.00 |unit=m}}
     p_drift_pre_hodoscope := 0; {{CONSTRAINT |min=0 |max=1 |bias=-1/1.00 |unit=m}}
     p_m5a_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5a_quad := -0.062; {{PARAM |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5a_hex := 0; {{PARAM |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5a_quad := -0.062; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5a_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
     p_m5b_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5b_quad := 0.115; {{PARAM |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5b_hex := 0; {{PARAM |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5b_quad := 0.115; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5b_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
     p_shape_in_1 := 0.2; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
     p_shape_in_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/10 |unit=1/m}}
     p_shape_in_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/200 |unit=1/m^2}}
@@ -408,8 +414,8 @@ PROCEDURE main;
     p_shape_out_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/10 |unit=1/m^2}}
     p_shape_out_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/200 |unit=1/m^3}}
     p_m5c_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5c_quad := -0.016; {{PARAM |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5c_hex := 0; {{CONSTRAINT |min=0 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5c_quad := -0.016; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5c_hex := 0; {{CONSTRAINT |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
 
     { ---- final hexapole optimization ---- }
 
@@ -443,31 +449,33 @@ PROCEDURE main;
     IF output_mode=1;
         out := 6;
     ELSEIF output_mode#1;
+        out_filename := 'out.txt';
+        OPENF 0 out_filename 'REPLACE';
         out := 0;
     ENDIF;
 
-    WRITE out 'p_dipole_field' p_dipole_field;
-    WRITE out 'p_bend_angle' p_bend_angle;
-    WRITE out 'p_drift_post_aperture' p_drift_post_aperture;
-    WRITE out 'p_drift_pre_bend' p_drift_pre_bend;
-    WRITE out 'p_drift_m5a_m5b' p_drift_m5a_m5b;
-    WRITE out 'p_drift_post_bend' p_drift_post_bend;
-    WRITE out 'p_drift_pre_hodoscope' p_drift_pre_hodoscope;
-    WRITE out 'p_m5a_length' p_m5a_length;
-    WRITE out 'p_m5a_quad' p_m5a_quad;
-    WRITE out 'p_m5a_hex' p_m5a_hex;
-    WRITE out 'p_m5b_length' p_m5b_length;
-    WRITE out 'p_m5b_quad' p_m5b_quad;
-    WRITE out 'p_m5b_hex' p_m5b_hex;
-    WRITE out 'p_shape_in_1' p_shape_in_1;
-    WRITE out 'p_shape_in_2' p_shape_in_2;
-    WRITE out 'p_shape_in_3' p_shape_in_3;
-    WRITE out 'p_shape_out_1' p_shape_out_1;
-    WRITE out 'p_shape_out_2' p_shape_out_2;
-    WRITE out 'p_shape_out_3' p_shape_out_3;
-    WRITE out 'p_m5c_length' p_m5c_length;
-    WRITE out 'p_m5c_quad' p_m5c_quad;
-    WRITE out 'p_m5c_hex' p_m5c_hex;
+    WRITE out 'p_dipole_field:' p_dipole_field;
+    WRITE out 'p_bend_angle:' p_bend_angle;
+    WRITE out 'p_drift_post_aperture:' p_drift_post_aperture;
+    WRITE out 'p_drift_pre_bend:' p_drift_pre_bend;
+    WRITE out 'p_drift_m5a_m5b:' p_drift_m5a_m5b;
+    WRITE out 'p_drift_post_bend:' p_drift_post_bend;
+    WRITE out 'p_drift_pre_hodoscope:' p_drift_pre_hodoscope;
+    WRITE out 'p_m5a_length:' p_m5a_length;
+    WRITE out 'p_m5a_quad:' p_m5a_quad;
+    WRITE out 'p_m5a_hex:' p_m5a_hex;
+    WRITE out 'p_m5b_length:' p_m5b_length;
+    WRITE out 'p_m5b_quad:' p_m5b_quad;
+    WRITE out 'p_m5b_hex:' p_m5b_hex;
+    WRITE out 'p_shape_in_1:' p_shape_in_1;
+    WRITE out 'p_shape_in_2:' p_shape_in_2;
+    WRITE out 'p_shape_in_3:' p_shape_in_3;
+    WRITE out 'p_shape_out_1:' p_shape_out_1;
+    WRITE out 'p_shape_out_2:' p_shape_out_2;
+    WRITE out 'p_shape_out_3:' p_shape_out_3;
+    WRITE out 'p_m5c_length:' p_m5c_length;
+    WRITE out 'p_m5c_quad:' p_m5c_quad;
+    WRITE out 'p_m5c_hex:' p_m5c_hex;
 
     { ---- final spectrometer ---- }
 
@@ -506,9 +514,10 @@ PROCEDURE main;
     WRITE out 'focal plane bend:' focal_plane_bend '/m';
     WRITE out 'focal plane length:' focal_plane_length*100 'cm';
     WRITE out 'focal plane height:' focal_plane_height*100 'cm';
+    WRITE out 'system length:' system_length*100 'cm';
     WRITE out 'algebraic resolution:';
     LOOP i 1 num_energies;
-        WRITE out ST((beam_d_energies(i)+1)*central_energy)&'MeV ->';
+        WRITE out ST((beam_d_energies(i)+1)*central_energy)&' MeV ->';
         WRITE out resolution(i)*central_energy*1000 'keV';
     ENDLOOP;
 
@@ -517,6 +526,10 @@ PROCEDURE main;
     WRITE_MAP out;
 
     WRITE out '';
+
+    IF output_mode#1;
+        CLOSEF 0;
+    ENDIF;
 
 ENDPROCEDURE;
 

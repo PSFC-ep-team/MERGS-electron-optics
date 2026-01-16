@@ -1,4 +1,7 @@
 cosy.*
 *.lis
 *.DAT
+generated/*
+pic*.pdf
+*_cache.pkl
 .idea/*
