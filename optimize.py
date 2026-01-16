@@ -115,7 +115,6 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		with open(f"generated/out{run_id}.txt") as file:
 			output = file.read()
 		output = re.sub(r"[\n\r]+", "\n", output)
-		output = output[860:]  # remove the annoying "C O S Y" ascii art
 		if "$$$ ERROR" in output or "### ERROR" in output:
 			print(output)
 			raise RuntimeError("COSY threw an error")
