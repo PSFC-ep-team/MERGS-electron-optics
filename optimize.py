@@ -75,12 +75,21 @@ def objective_function(parameter_vector: List[float]) -> float:
 			key = lines[i][:-1].strip()
 			value = float(lines[i + 1])
 			outputs[key] = value
+		elif ":=" in lines[i]:
+			key, value = lines[i][:-1].split(":=")
+			outputs[key.strip()] = float(value.strip())
 
 	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
 
 	penalty = 0
 	for parameter, value in zip(parameters, parameter_vector):
 		penalty -= parameter.bias*abs(value)
+	for constraint in constraints:
+		value = outputs[constraint.name]
+		if value < constraint.min or value > constraint.max:
+			penalty = inf
+		else:
+			penalty -= constraint.bias*abs(value)
 
 	if outputs["system length"] > 300.0 or outputs["focal plane length"] > 100.0 or outputs["focal plane height"] > 50.0:
 		cost = inf
@@ -143,30 +152,34 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 	return cache[run_key]
 
 
-def infer_parameter_names() -> None:
-	""" read a COSY file to pull out the list of tunable inputs """
-	global parameters
-
-	parameters = []
+def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
+	""" read a COSY file to pull out the list of tunable inputs and the list of constrained inputs """
 	lines = script.split("\n")
-	for line in lines:
-		match = re.search(r"^\s*([A-Za-z0-9_]+)\s*:=\s*([-.0-9]+).*\{\{PARAM([^}]*)\}\}", line)
-		if match is not None:
-			hyperparameters = {}
-			for arg in match.group(3).split("|"):
-				if len(arg.strip()) > 0:
-					key, value = arg.split("=")
-					hyperparameters[key.strip()] = value.strip()
-			parameters.append(Parameter(
-				name=match.group(1),
-				default=float(match.group(2)),
-				min=float(hyperparameters["min"]),
-				max=float(hyperparameters["max"]),
-				bias=evaluate(hyperparameters["bias"]),
-				unit=hyperparameters["unit"],
-			))
+	variable_lists = {}
+	for variable_type in ["PARAM", "CONSTRAINT"]:
+		variable_lists[variable_type] = []
+		for line in lines:
+			match = re.search(r"^\s*([A-Za-z0-9_]+)\s*:=\s*([-.0-9]+).*\{\{PARAM([^}]*)\}\}", line)
+			if match is not None:
+				hyperparameters = {}
+				for arg in match.group(3).split("|"):
+					if len(arg.strip()) > 0:
+						key, value = arg.split("=")
+						hyperparameters[key.strip()] = value.strip()
+				variable_lists[variable_type].append(Parameter(
+					name=match.group(1),
+					default=float(match.group(2)) if variable_type == "PARAM" else None,
+					min=float(hyperparameters["min"]),
+					max=float(hyperparameters["max"]),
+					bias=evaluate(hyperparameters["bias"]),
+					unit=hyperparameters["unit"],
+				))
+
+	parameters = variable_lists["PARAM"]
+	constraints = variable_lists["CONSTRAINT"]
 	if len(parameters) == 0:
 		raise ValueError("the COSY file didn't seem to have any parameters in it.")
+	return parameters, constraints
 
 
 def generate_initial_sample(
@@ -243,7 +256,7 @@ try:
 except FileNotFoundError:
 	cache = {}
 
-infer_parameter_names()
+parameters, constraints = infer_parameter_names()
 
 
 if __name__ == '__main__':
