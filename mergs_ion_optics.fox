@@ -398,28 +398,28 @@ PROCEDURE main;
     p_drift_pre_aperture := 0.25;
 
     { set the ion-optic parameters }
-    p_dipole_field := 0.1; {{PARAM |min=0.01 |max=1.5 |bias=-1/1.00 |unit=T}}
-    p_dipole_length := 1.06; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=deg}}
+    p_dipole_field := 0.1; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.10 |unit=T}}
+    p_dipole_length := 1.06; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=deg}}
     p_drift_post_aperture := 0.05; {{PARAM |min=0 |max=1 |bias=0 |unit=m}}
     p_drift_m5a_m5b := 0.08; {{PARAM |min=0 |max=1 |bias=0 |unit=m}}
     p_drift_pre_bend := 0.15; {{PARAM |min=0 |max=1 |bias=0 |unit=m}}
     p_drift_post_bend := 0.20; {{PARAM |min=0 |max=1 |bias=0 |unit=m}}
     p_drift_pre_hodoscope := 0; {{CONSTRAINT |min=0 |max=1 |bias=0 |unit=m}}
-    p_m5a_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5a_quad := -0.062; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5a_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5b_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5b_quad := 0.115; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5b_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_m5a_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
+    p_m5a_quad := -0.062; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
+    p_m5a_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
+    p_m5b_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
+    p_m5b_quad := 0.115; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
+    p_m5b_hex := 0; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
     p_shape_in_1 := 0.2; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_in_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/10 |unit=1/m}}
-    p_shape_in_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/200 |unit=1/m^2}}
+    p_shape_in_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
+    p_shape_in_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^2}}
     p_shape_out_1 := 0.2; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_out_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/10 |unit=1/m^2}}
-    p_shape_out_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/200 |unit=1/m^3}}
-    p_m5c_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5c_quad := -0.016; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
-    p_m5c_hex := 0; {{CONSTRAINT |min=-0.2 |max=0.2 |bias=-1/0.10 |unit=T}}
+    p_shape_out_2 := 0; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
+    p_shape_out_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^3}}
+    p_m5c_length := 0.10; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
+    p_m5c_quad := -0.016; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
+    p_m5c_hex := 0; {{CONSTRAINT |min=-0.2 |max=0.2 |bias=-1/0.02 |unit=T}}
 
     { ---- final hexapole optimization ---- }
 
@@ -458,28 +458,28 @@ PROCEDURE main;
         out := 0;
     ENDIF;
 
-    WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(F10.6)');
-    WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(F10.6)');
-    WRITE out 'p_drift_post_aperture := '&SF(p_drift_post_aperture, '(F10.6)');
-    WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(F10.6)');
-    WRITE out 'p_drift_m5a_m5b := '&SF(p_drift_m5a_m5b, '(F10.6)');
-    WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(F10.6)');
-    WRITE out 'p_drift_pre_hodoscope := '&SF(p_drift_pre_hodoscope, '(F10.6)');
-    WRITE out 'p_m5a_length := '&SF(p_m5a_length, '(F10.6)');
-    WRITE out 'p_m5a_quad := '&SF(p_m5a_quad, '(F10.6)');
-    WRITE out 'p_m5a_hex := '&SF(p_m5a_hex, '(F10.6)');
-    WRITE out 'p_m5b_length := '&SF(p_m5b_length, '(F10.6)');
-    WRITE out 'p_m5b_quad := '&SF(p_m5b_quad, '(F10.6)');
-    WRITE out 'p_m5b_hex := '&SF(p_m5b_hex, '(F10.6)');
-    WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(F10.6)');
-    WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(F10.6)');
-    WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(F10.6)');
-    WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(F10.6)');
-    WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(F10.6)');
-    WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(F10.6)');
-    WRITE out 'p_m5c_length := '&SF(p_m5c_length, '(F10.6)');
-    WRITE out 'p_m5c_quad := '&SF(p_m5c_quad, '(F10.6)');
-    WRITE out 'p_m5c_hex := '&SF(p_m5c_hex, '(F10.6)');
+    WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(F11.6)');
+    WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(F11.6)');
+    WRITE out 'p_drift_post_aperture := '&SF(p_drift_post_aperture, '(F11.6)');
+    WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(F11.6)');
+    WRITE out 'p_drift_m5a_m5b := '&SF(p_drift_m5a_m5b, '(F11.6)');
+    WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(F11.6)');
+    WRITE out 'p_drift_pre_hodoscope := '&SF(p_drift_pre_hodoscope, '(F11.6)');
+    WRITE out 'p_m5a_length := '&SF(p_m5a_length, '(F11.6)');
+    WRITE out 'p_m5a_quad := '&SF(p_m5a_quad, '(F11.6)');
+    WRITE out 'p_m5a_hex := '&SF(p_m5a_hex, '(F11.6)');
+    WRITE out 'p_m5b_length := '&SF(p_m5b_length, '(F11.6)');
+    WRITE out 'p_m5b_quad := '&SF(p_m5b_quad, '(F11.6)');
+    WRITE out 'p_m5b_hex := '&SF(p_m5b_hex, '(F11.6)');
+    WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(F11.6)');
+    WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(F11.6)');
+    WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(F11.6)');
+    WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(F11.6)');
+    WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(F11.6)');
+    WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(F11.6)');
+    WRITE out 'p_m5c_length := '&SF(p_m5c_length, '(F11.6)');
+    WRITE out 'p_m5c_quad := '&SF(p_m5c_quad, '(F11.6)');
+    WRITE out 'p_m5c_hex := '&SF(p_m5c_hex, '(F11.6)');
 
     { ---- final spectrometer ---- }
 

@@ -5,7 +5,7 @@ import re
 import subprocess
 from typing import Tuple, List, Union
 
-from numpy import sqrt, array_equal, array, empty_like, inf
+from numpy import sqrt, array_equal, array, empty_like, inf, log
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -73,13 +73,19 @@ def objective_function(parameter_vector: List[float]) -> float:
 			value = float(lines[i + 1])
 			outputs[key] = value
 
+	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
+
+	penalty = 0
+	for parameter, value in zip(parameters, parameter_vector):
+		penalty -= parameter.bias*abs(value)
+
 	if outputs["system length"] > 300.0 or outputs["focal plane length"] > 100.0 or outputs["focal plane height"] > 50.0:
 		cost = inf
 	else:
-		cost = sum(resolution**2 for resolution in resolutions)/len(resolutions)
+		cost = penalty + 20*log(mean_resolution)
 
 	print("[" + ", ".join(f"{value:g}" for value in parameter_vector) + "]")
-	print(f"\t-> {sqrt(cost):4.1f} keV")
+	print(f"\t-> {penalty:.6g} + 20 log({mean_resolution:5.2f} keV) = {cost:.6g}")
 	return cost
 
 
