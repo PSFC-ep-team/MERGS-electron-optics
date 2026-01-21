@@ -256,8 +256,10 @@ PROCEDURE evaluate_spectrometer;
     focal_plane_length := max_x - min_x; {m}
     focal_plane_height := max_y - min_y; {m}
 
-    system_length := p_drift_post_aperture + p_drift_m5a_m5b +
-                     p_drift_pre_bend + p_drift_post_bend +
+    system_length := p_drift_post_aperture + p_m5a_length +
+                     p_drift_m5a_m5b + p_m5b_length +
+                     p_drift_pre_bend + p_dipole_length +
+                     p_drift_post_bend + p_m5c_length +
                      p_drift_pre_hodoscope; {m}
  ENDPROCEDURE;
 

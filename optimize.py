@@ -73,7 +73,7 @@ def objective_function(parameter_vector: List[float]) -> float:
 			value = float(lines[i + 1])
 			outputs[key] = value
 
-	if outputs["system length"] > 100.0 or outputs["focal plane length"] > 100.0:
+	if outputs["system length"] > 300.0 or outputs["focal plane length"] > 100.0 or outputs["focal plane height"] > 50.0:
 		cost = inf
 	else:
 		cost = sum(resolution**2 for resolution in resolutions)/len(resolutions)
