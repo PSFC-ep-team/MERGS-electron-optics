@@ -159,7 +159,9 @@ def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
 	for variable_type in ["PARAM", "CONSTRAINT"]:
 		variable_lists[variable_type] = []
 		for line in lines:
-			match = re.search(r"^\s*([A-Za-z0-9_]+)\s*:=\s*([-.0-9]+).*\{\{PARAM([^}]*)\}\}", line)
+			match = re.search(
+				r"^\s*([A-Za-z0-9_]+)\s*:=\s*([-.0-9]+).*\{\{" + variable_type + r"([^}]*)\}\}",
+				line)
 			if match is not None:
 				hyperparameters = {}
 				for arg in match.group(3).split("|"):
