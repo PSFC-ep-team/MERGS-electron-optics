@@ -65,7 +65,6 @@ def optimize_design():
 
 def objective_function(parameter_vector: List[float]) -> float:
 	""" run COSY, read its output, and calculate a number that quantifies the system. smaller should be better """
-	# first, round the numbers so that it doesn't look weird when we tell the manufacturer to make it 53.155004745439576 mm long
 	output = run_cosy(
 		parameter_vector,
 		output_mode="none",
@@ -112,14 +111,6 @@ def objective_function(parameter_vector: List[float]) -> float:
 def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_cache=True) -> str:
 	""" get the observable values at these perturbations """
 	assert len(parameter_vector) == len(parameters)
-
-	for i, parameter in enumerate(parameters):
-		if parameter.unit == "T":
-			parameter_vector[i] = round(parameter_vector[i], 4)  # round all fields to the nearest tenth of a mT
-		elif parameter.unit == "m":
-			parameter_vector[i] = round(parameter_vector[i], 5)  # round all distances to the nearest hundredth of a mm
-		elif parameter.unit == "deg":
-			parameter_vector[i] = round(parameter_vector[i], 2)  # round all angles to the nearest hundredth of a degree
 
 	graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
 	run_key = tuple(parameter_vector)
