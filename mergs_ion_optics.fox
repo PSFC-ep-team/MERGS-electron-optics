@@ -24,23 +24,8 @@ VARIABLE shape_zero 1 3;
 VARIABLE p_dipole_field 1;
 VARIABLE p_dipole_length 1;
 VARIABLE p_drift_pre_aperture 1;
-VARIABLE p_drift_post_aperture 1;
-VARIABLE p_drift_m5a_m5b 1;
 VARIABLE p_drift_pre_bend 1;
 VARIABLE p_drift_post_bend 1;
-VARIABLE p_drift_pre_hodoscope 1;
-VARIABLE p_m5a_length 1;
-VARIABLE p_m5a_quad 1;
-VARIABLE p_m5a_hex 1;
-VARIABLE p_m5b_length 1;
-VARIABLE p_m5b_quad 1;
-VARIABLE p_m5b_hex 1;
-VARIABLE p_m5c_length 1;
-VARIABLE p_m5c_quad 1;
-VARIABLE p_m5c_hex 1;
-VARIABLE p_m5d_length 1;
-VARIABLE p_m5d_quad 1;
-VARIABLE p_m5d_hex 1;
 
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
@@ -183,9 +168,9 @@ PROCEDURE calculate_final_drift;
         ENDIF;
     ENDLOOP;
 
-    p_drift_pre_hodoscope := -first_derivative/twoth_derivative;
-    IF p_drift_pre_hodoscope<0;
-        p_drift_pre_hodoscope := 0;
+    p_drift_post_bend := -first_derivative/twoth_derivative;
+    IF p_drift_post_bend<0;
+        p_drift_post_bend := 0;
     ENDIF;
 ENDPROCEDURE;
 
@@ -253,14 +238,10 @@ PROCEDURE evaluate_spectrometer;
             ENDIF;
         ENDIF;
     ENDLOOP;
-    focal_plane_length := max_x - min_x; {m}
-    focal_plane_height := max_y - min_y; {m}
+    focal_plane_length := max_x - min_x; {{CONSTRAINT |min=0.00 |max=1.00 |bias=0 |unit=m}}
+    focal_plane_height := max_y - min_y; {{CONSTRAINT |min=0.00 |max=0.50 |bias=-1/0.02 |unit=m}}
 
-    system_length := p_drift_post_aperture + p_m5a_length +
-                     p_drift_m5a_m5b + p_m5b_length +
-                     p_drift_pre_bend + p_dipole_length +
-                     p_drift_post_bend + p_m5c_length +
-                     p_drift_pre_hodoscope; {m}
+    system_length := p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
  ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
@@ -341,35 +322,14 @@ PROCEDURE elt_spectrometer;
 
     ELT_APERTURE MAX(aperture_width, aperture_height)/2;
 
-    ELT_DRIFT_LENGTH p_drift_post_aperture;
-
-    ELT_MULTIPOLE_5
-        p_m5a_length
-        p_m5a_quad p_m5a_hex 0 0 0
-        0.05;
-
-    ELT_DRIFT_LENGTH p_drift_m5a_m5b;
-
-    ELT_MULTIPOLE_5
-        p_m5b_length
-        p_m5b_quad p_m5b_hex 0 0 0
-        0.05;
-
     ELT_DRIFT_LENGTH p_drift_pre_bend;
 
     ELT_BENDING
-        bend_radius bend_angle 0.075
+        bend_radius bend_angle 0.09
         shape_zero shape_in shape_out 3;
 
-    ELT_DRIFT_LENGTH p_drift_post_bend;
-
-    ELT_MULTIPOLE_5
-        p_m5c_length
-        p_m5c_quad p_m5c_hex 0 0 0
-        0.05;
-
     calculate_final_drift;
-    ELT_DRIFT_LENGTH p_drift_pre_hodoscope;
+    ELT_DRIFT_LENGTH p_drift_post_bend;
 
     ELT_APERTURE 0.05; {for scoping hodoscope size}
 ENDPROCEDURE;
@@ -392,34 +352,22 @@ PROCEDURE main;
 
     { set upper bound for the foil dimensions }
     foil_width := 0.02;
-    foil_height := 0.03;
+    foil_height := 0.02;
     aperture_width := 0.02;
-    aperture_height := 0.03;
+    aperture_height := 0.02;
     p_drift_pre_aperture := 0.25;
 
     { set the ion-optic parameters }
-    p_dipole_field := 0.2169; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.10 |unit=T}}
-    p_dipole_length := 0.24; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=deg}}
-    p_drift_post_aperture := 0.36339; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_drift_m5a_m5b := 0.17416; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_drift_pre_bend := 0.29065; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_drift_post_bend := 0.22157; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_drift_pre_hodoscope := 0; {{CONSTRAINT |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_m5a_length := 0.00027; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
-    p_m5a_quad := 0.0598; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
-    p_m5a_hex := -0.0248; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
-    p_m5b_length := 0.00005; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
-    p_m5b_quad := 0.1786; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
-    p_m5b_hex := 0.0096; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
-    p_shape_in_1 := 0.699981; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_in_2 := 0.005269; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
+    p_dipole_field := 0.3163845; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.10 |unit=T}}
+    p_dipole_length := 0.1945813; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+    p_drift_pre_bend := 0.5197086; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
+    p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=1 |bias=-1/0.10 |unit=m}}
+    p_shape_in_1 := 0.4501421; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+    p_shape_in_2 := 5.496986; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
     p_shape_in_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^2}}
-    p_shape_out_1 := -0.268689; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_out_2 := 0.954543; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
-    p_shape_out_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^3}}
-    p_m5c_length := 0.04038; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
-    p_m5c_quad := -0.0916; {{PARAM |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
-    p_m5c_hex := 0; {{CONSTRAINT |min=-0.2 |max=0.2 |bias=-1/0.05 |unit=T}}
+    p_shape_out_1 := 0.1685695; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+    p_shape_out_2 := -4.582151; {{CONSTRAINT |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
+    p_shape_out_3 := 12.75657; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^3}}
 
     { ---- final hexapole optimization ---- }
 
@@ -431,7 +379,7 @@ PROCEDURE main;
 
     y_scale := 0;
 
-    FIT p_m5c_hex;
+    FIT p_shape_out_2;
         UNITY_MAP;
         CLEAR_RAYS;
         gen_rays;

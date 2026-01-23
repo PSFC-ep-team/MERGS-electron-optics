@@ -12,9 +12,9 @@ from scipy import optimize, stats
 
 
 FILE_TO_OPTIMIZE = "mergs_ion_optics"
-ORDER = 2
+ORDER = 6
 FRUGALITY = 0.1
-METHOD = "nelder-mead"
+METHOD = "Nelder-Mead"  # one of "L-BFGS-B", "Nelder-Mead", or "differential evolution"
 
 
 def optimize_design():
@@ -24,7 +24,14 @@ def optimize_design():
 	initial_guess = [parameter.default for parameter in parameters]
 	bounds = [(parameter.min, parameter.max) for parameter in parameters]
 	n_dims = len(initial_guess)
-	if METHOD == "nelder-mead":
+	if METHOD == "L-BFGS-B":
+		result = optimize.minimize(
+			objective_function,
+			initial_guess,
+			bounds=bounds,
+			method='L-BFGS-B',
+		)
+	elif METHOD == "Nelder-Mead":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
