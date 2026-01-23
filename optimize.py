@@ -98,10 +98,7 @@ def objective_function(parameter_vector: List[float]) -> float:
 		else:
 			penalty -= constraint.bias*abs(value)
 
-	if outputs["system length"] > 300.0 or outputs["focal plane length"] > 100.0 or outputs["focal plane height"] > 50.0:
-		cost = inf
-	else:
-		cost = FRUGALITY*penalty + 2*log(mean_resolution)
+	cost = FRUGALITY*penalty + 2*log(mean_resolution)
 
 	print("[" + ", ".join(f"{value:g}" for value in parameter_vector) + "]")
 	print(f"\t-> {FRUGALITY}*{penalty:.6g} + 2*log({mean_resolution:5.2f} keV) = {cost:.6g}")
@@ -142,6 +139,9 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		if "$$$ ERROR" in output or "### ERROR" in output:
 			print(output)
 			raise RuntimeError("COSY threw an error")
+		if "******" in output:
+			print(output)
+			raise RuntimeError("COSY screwed up a number format")
 
 		cache[run_key] = output
 		if len(cache)%20 == 0:
@@ -158,23 +158,26 @@ def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
 	for variable_type in ["PARAM", "CONSTRAINT"]:
 		variable_lists[variable_type] = []
 		for line in lines:
-			match = re.search(
-				r"^\s*([A-Za-z0-9_]+)\s*:=\s*([-.0-9]+).*\{\{" + variable_type + r"([^}]*)\}\}",
-				line)
-			if match is not None:
-				hyperparameters = {}
-				for arg in match.group(3).split("|"):
-					if len(arg.strip()) > 0:
-						key, value = arg.split("=")
-						hyperparameters[key.strip()] = value.strip()
-				variable_lists[variable_type].append(Parameter(
-					name=match.group(1),
-					default=float(match.group(2)) if variable_type == "PARAM" else None,
-					min=float(hyperparameters["min"]),
-					max=float(hyperparameters["max"]),
-					bias=evaluate(hyperparameters["bias"]),
-					unit=hyperparameters["unit"],
-				))
+			for pattern in [
+				r"^\s*(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+				r"^\s*WRITE out '(?P<name>[A-Za-z0-9_ ]+):'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+			]:
+				match = re.search(pattern, line)
+				if match is not None:
+					hyperparameters = {}
+					for arg in match["args"].split("|"):
+						if len(arg.strip()) > 0:
+							key, value = arg.split("=")
+							hyperparameters[key.strip()] = value.strip()
+					variable_lists[variable_type].append(Parameter(
+						name=match["name"],
+						default=float(match["value"]) if "value" in match.groupdict() else None,
+						min=float(hyperparameters["min"]),
+						max=float(hyperparameters["max"]),
+						bias=evaluate(hyperparameters["bias"]),
+						unit=hyperparameters["unit"],
+					))
+					break
 
 	parameters = variable_lists["PARAM"]
 	constraints = variable_lists["CONSTRAINT"]

@@ -458,28 +458,16 @@ PROCEDURE main;
         out := 0;
     ENDIF;
 
-    WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(F11.6)')&';';
-    WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(F11.6)')&';';
-    WRITE out 'p_drift_post_aperture := '&SF(p_drift_post_aperture, '(F11.6)')&';';
-    WRITE out 'p_drift_m5a_m5b := '&SF(p_drift_m5a_m5b, '(F11.6)')&';';
-    WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(F11.6)')&';';
-    WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(F11.6)')&';';
-    WRITE out 'p_drift_pre_hodoscope := '&SF(p_drift_pre_hodoscope, '(F11.6)')&';';
-    WRITE out 'p_m5a_length := '&SF(p_m5a_length, '(F11.6)')&';';
-    WRITE out 'p_m5a_quad := '&SF(p_m5a_quad, '(F11.6)')&';';
-    WRITE out 'p_m5a_hex := '&SF(p_m5a_hex, '(F11.6)')&';';
-    WRITE out 'p_m5b_length := '&SF(p_m5b_length, '(F11.6)')&';';
-    WRITE out 'p_m5b_quad := '&SF(p_m5b_quad, '(F11.6)')&';';
-    WRITE out 'p_m5b_hex := '&SF(p_m5b_hex, '(F11.6)')&';';
-    WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(F11.6)')&';';
-    WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(F11.6)')&';';
-    WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(F11.6)')&';';
-    WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(F11.6)')&';';
-    WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(F11.6)')&';';
-    WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(F11.6)')&';';
-    WRITE out 'p_m5c_length := '&SF(p_m5c_length, '(F11.6)')&';';
-    WRITE out 'p_m5c_quad := '&SF(p_m5c_quad, '(F11.6)')&';';
-    WRITE out 'p_m5c_hex := '&SF(p_m5c_hex, '(F11.6)')&';';
+    WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(G13.7)')&';';
+    WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G13.7)')&';';
+    WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G13.7)')&';';
+    WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G13.7)')&';';
+    WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G13.7)')&';';
+    WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G13.7)')&';';
+    WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G13.7)')&';';
+    WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G13.7)')&';';
+    WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G13.7)')&';';
+    WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G13.7)')&';';
 
     { ---- final spectrometer ---- }
 
@@ -516,9 +504,9 @@ PROCEDURE main;
     WRITE out 'dispersion:' ME(1,6)/central_energy*100 'cm/MeV';
     WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg';
     WRITE out 'focal plane bend:' focal_plane_bend '/m';
-    WRITE out 'focal plane length:' focal_plane_length*100 'cm';
-    WRITE out 'focal plane height:' focal_plane_height*100 'cm';
-    WRITE out 'system length:' system_length*100 'cm';
+    WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=0 |max=100 |bias=0 |unit=cm}}
+    WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=50 |bias=-1/2.0 |unit=cm}}
+    WRITE out 'system length:' system_length*100 'cm'; {{CONSTRAINT |min=0 |max=300 |bias=0 |unit=cm}}
     WRITE out 'algebraic resolution:';
     LOOP i 1 num_energies;
         WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
