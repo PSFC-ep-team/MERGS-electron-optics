@@ -1,7 +1,7 @@
 import re
 from typing import Tuple, Dict, Sequence, List
 
-from numpy import sin, cos, pi
+from numpy import sin, cos, pi, zeros_like, linspace, hypot
 
 FILE_TO_OPTIMIZE = "mergs_ion_optics"
 PARAMETER_STRING = """
@@ -112,7 +112,7 @@ def draw_drift_length(
 def draw_bending_magnet(
 		graphic: List[Path], x: float, y: float, θ: float,
 		length: float, field: float, bore_radius: float,
-		in_shape_parameters: Sequence[float], out_shape_parameters: Sequence[float],
+		in_shape_parameters: List[float], out_shape_parameters: List[float],
 ) -> Tuple[float, float, float]:
 	central_momentum = (0.5110 + 16)*1.602e-13/2.998e8  # kg*m/s
 	bend_radius = central_momentum/(1.602e-19*field)  # m
@@ -120,17 +120,30 @@ def draw_bending_magnet(
 	x_center = x - bend_radius*sin(θ)
 	y_center = y + bend_radius*cos(θ)
 
+	ξ = linspace(-bore_radius, bore_radius, 21)
+	ζ_back = -evaluate_polynomial(ξ, [0] + in_shape_parameters)
+	x_back = x_center + (bend_radius - ξ)*sin(θ) + ζ_back*cos(θ)
+	y_back = y_center - (bend_radius - ξ)*cos(θ) + ζ_back*sin(θ)
+	R_back = hypot(x_back - x_center, y_back - y_center)
+	within_radius = R_back <= bend_radius + bore_radius
+	x_back = x_back[within_radius]
+	y_back = y_back[within_radius]
+	ζ_front = evaluate_polynomial(ξ, [0] + out_shape_parameters)
+	x_front = x_center + (bend_radius - ξ)*sin(θ + bend_angle) + ζ_front*cos(θ + bend_angle)
+	y_front = y_center - (bend_radius - ξ)*cos(θ + bend_angle) + ζ_front*sin(θ + bend_angle)
+	R_front = hypot(x_front - x_center, y_front - y_center)
+	within_radius = R_front <= bend_radius + bore_radius
+	x_front = x_front[within_radius]
+	y_front = y_front[within_radius]
+
 	block = [
-		("M", [
-			x_center + (bend_radius + bore_radius)*sin(θ),
-			y_center - (bend_radius + bore_radius)*cos(θ),
-		]),
+		("M", [x_back[0], y_back[0]]),
 		("A", [
 			bend_radius + bore_radius, bend_radius + bore_radius,
 			0, (1 if bend_angle > pi else 0), 1,
-			x_center + (bend_radius + bore_radius)*sin(θ + bend_angle),
-			y_center - (bend_radius + bore_radius)*cos(θ + bend_angle),
+			x_front[0], y_front[0],
 		]),
+		*[("L", [x, y]) for x, y in zip(x_front[1:], y_front[1:])],
 		("L", [
 			x_center + (bend_radius - bore_radius)*sin(θ + bend_angle),
 			y_center - (bend_radius - bore_radius)*cos(θ + bend_angle),
@@ -141,6 +154,7 @@ def draw_bending_magnet(
 			x_center + (bend_radius - bore_radius)*sin(θ),
 			y_center - (bend_radius - bore_radius)*cos(θ),
 		]),
+		*[("L", [x, y]) for x, y in zip(x_back[::-1], y_back[::-1])],
 		("Z", []),
 	]
 	graphic.append(Path(klass="magnet", commands=block, zorder=1))
@@ -159,6 +173,13 @@ def draw_bending_magnet(
 	x, y = arc[-1][1][-2:]
 	θ = θ + bend_angle
 	return x, y, θ
+
+
+def evaluate_polynomial(x, coefficients):
+	y = zeros_like(x)
+	for i, coefficient in enumerate(coefficients):
+		y += coefficient*x**i
+	return y
 
 
 def write_SVG(filename: str, paths: List[Path]) -> None:
