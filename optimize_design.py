@@ -3,6 +3,7 @@ import os
 import pickle
 import re
 import subprocess
+from shutil import copyfile
 from typing import Tuple, List, Union
 
 from numpy import sqrt, array_equal, array, empty_like, inf, log
@@ -125,7 +126,7 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		# set the order of the calculation to the desired value
 		modified_script = re.sub(r"order := [0-9];", f"order := {ORDER};", modified_script)
 		# set the output filename appropriately
-		modified_script = re.sub(r"out_filename := '.*';", f"out_filename := 'generated/{FILE_TO_OPTIMIZE}_{run_id}_output.txt';", modified_script)
+		modified_script = re.sub(r"out_filename := '.*';", f"out_filename := '{FILE_TO_OPTIMIZE}_{run_id}_output.txt';", modified_script)
 		for i, parameter in enumerate(parameters):
 			name = parameter.name
 			value = parameter_vector[i]
@@ -134,10 +135,15 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		os.makedirs("generated", exist_ok=True)
 		with open(f'generated/{FILE_TO_OPTIMIZE}_{run_id}.fox', 'w') as file:
 			file.write(modified_script)
+		if not os.path.isfile("generated/COSY.bin") or os.path.getsize("generated/COSY.bin") == 0:
+			if os.path.isfile("COSY.bin"):
+				copyfile("COSY.bin", "generated/COSY.bin")
+			else:
+				raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
 
 		subprocess.run(
-			['cosy', f'generated/{FILE_TO_OPTIMIZE}_{run_id}'],
-			check=True, stdout=subprocess.DEVNULL)
+			['cosy', f'{FILE_TO_OPTIMIZE}_{run_id}'],
+			cwd="generated", check=True, stdout=subprocess.DEVNULL)
 
 		# store full parameter sets and their resulting COSY outputs in the cache
 		with open(f"generated/{FILE_TO_OPTIMIZE}_{run_id}_output.txt") as file:
