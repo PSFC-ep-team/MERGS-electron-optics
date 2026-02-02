@@ -166,37 +166,40 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 
 def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
 	""" read a COSY file to pull out the list of tunable inputs and the list of constrained inputs """
-	lines = script.split("\n")
 	variable_lists = {}
 	for variable_type in ["PARAM", "CONSTRAINT"]:
 		variable_lists[variable_type] = []
-		for line in lines:
-			for pattern in [
-				r"^\s*(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
-				r"^\s*WRITE out '(?P<name>[A-Za-z0-9_ ]+):'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
-			]:
-				match = re.search(pattern, line)
-				if match is not None:
-					hyperparameters = {}
-					for arg in match["args"].split("|"):
-						if len(arg.strip()) > 0:
-							key, value = arg.split("=")
-							hyperparameters[key.strip()] = value.strip()
-					variable_lists[variable_type].append(Parameter(
-						name=match["name"],
-						default=float(match["value"]) if "value" in match.groupdict() else None,
-						min=float(hyperparameters["min"]),
-						max=float(hyperparameters["max"]),
-						bias=evaluate(hyperparameters["bias"]),
-						unit=hyperparameters["unit"],
-					))
-					break
-
+		for tagged_line in re.finditer(r"^.*\{\{" + variable_type + r".*\}\}.*$", script, re.MULTILINE):
+			variable_lists[variable_type].append(
+				infer_single_parameter_name(variable_type, script[tagged_line.start():tagged_line.end()]))
 	parameters = variable_lists["PARAM"]
 	constraints = variable_lists["CONSTRAINT"]
 	if len(parameters) == 0:
 		raise ValueError("the COSY file didn't seem to have any parameters in it.")
 	return parameters, constraints
+
+
+def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
+	for pattern in [
+		r"\b(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+		r"\bWRITE out '(?P<name>[A-Za-z0-9_ ]+):'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+	]:
+		match = re.search(pattern, line)
+		if match is not None:
+			hyperparameters = {}
+			for arg in match["args"].split("|"):
+				if len(arg.strip()) > 0:
+					key, value = arg.split("=")
+					hyperparameters[key.strip()] = value.strip()
+			return Parameter(
+				name=match["name"],
+				default=float(match["value"]) if "value" in match.groupdict() else None,
+				min=float(hyperparameters["min"]),
+				max=float(hyperparameters["max"]),
+				bias=evaluate(hyperparameters["bias"]),
+				unit=hyperparameters["unit"],
+			)
+	raise ValueError(f"You seem to have tried to specify a {variable_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
 
 
 def generate_initial_sample(
