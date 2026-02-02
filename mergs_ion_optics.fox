@@ -438,8 +438,9 @@ PROCEDURE main;
     elt_spectrometer;
 
     IF output_mode=1;
-        { output to GUI }
+        { output to GUI and PDF }
         DRAW_END_PATH;
+        PG -12 -12;
         PG -1 -2;
     ENDIF;
     IF output_mode=2;

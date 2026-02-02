@@ -65,9 +65,9 @@ def optimize_design():
 		if re.search(r"_proc[0-9]+", filename):
 			os.remove(f"generated/{filename}")
 
-	# output the final result
+	# show the final result
 	print(result)
-	run_cosy(result.x, output_mode="file", run_id=f"optimal_{ORDER}th_{FRUGALITY}x", use_cache=False)
+	run_cosy(result.x, output_mode="GUI", run_id=f"optimal_{ORDER}th_{FRUGALITY}x", use_cache=False)
 
 
 def objective_function(parameter_vector: List[float]) -> float:
