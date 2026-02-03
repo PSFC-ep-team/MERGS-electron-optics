@@ -75,7 +75,13 @@ Once that's all set, you can simply call `python optimize_design.py` to optimize
 As I said, this isn't intended to be a fully automated workflow.
 What you'll typically do is manually find a good starting point, run the algorithm to tune it at a low order, then reassess.
 There may be additional constraints that need to be added, or there may be redundant magnets that can be removed (like if the algorithm is setting their field to zero).
-Repeat until no such changes become necessary, then re-optimize at the next order up.
+Repeat until no such changes become necessary, then copy the found parameters into `mergs_ion_optics.fox` and re-optimize at the next order up.
+Nelder–Mead and L-BFGS-B can have difficulty with local minima, so if you want to be more confident you've found a good optimum, it can be useful to do multiple rounds of optimization at the same order.
+
+By default, the calculations for each set of parameters at each order are cached so that you can stop and restart a simulation without having to rerun a bunch of COSY.
+But the downside of this is that you can run into trouble if you make changes to the calculations that don't get propagated due to the caching.
+Changing the number of parameters or constraints is safe, as is changing the min, max, bias, and default of each parameter and constraints, as those things are intentionally not cached.
+But if you change the order of parameters, or change the way you calculate resolution or something like that, then you need to delete the cache file.
 
 ## Drawing magnet systems
 
