@@ -40,6 +40,7 @@ def optimize_design():
 			method='Nelder-Mead',
 			options=dict(
 				initial_simplex=generate_initial_sample(initial_guess, bounds, n_dims + 1),
+				maxiter=10_000,
 				disp=True,
 			)
 		)
@@ -91,7 +92,7 @@ def objective_function(parameter_vector: List[float]) -> float:
 			value = float(lines[i + 1])
 			outputs[key] = value
 		elif ":=" in lines[i]:
-			key, value = lines[i][:-1].split(":=")
+			key, value = lines[i].replace(";", "").split(":=")
 			outputs[key.strip()] = float(value.strip())
 
 	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
@@ -130,7 +131,10 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		for i, parameter in enumerate(parameters):
 			name = parameter.name
 			value = parameter_vector[i]
-			modified_script = re.sub(rf"{name} := [-.0-9]+;", f"{name} := {value};", modified_script)
+			if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_script) is None:
+				raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
+			else:
+				modified_script = re.sub(rf"{name} := [-.0-9]+;", f"{name} := {value};", modified_script)
 
 		os.makedirs("generated", exist_ok=True)
 		with open(f'generated/{FILE_TO_OPTIMIZE}_{run_id}.fox', 'w') as file:
@@ -144,6 +148,9 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 		subprocess.run(
 			['cosy', f'{FILE_TO_OPTIMIZE}_{run_id}'],
 			cwd="generated", check=True, stdout=subprocess.DEVNULL)
+
+		if output_mode == "GUI":
+			return "(no output captured)"
 
 		# store full parameter sets and their resulting COSY outputs in the cache
 		with open(f"generated/{FILE_TO_OPTIMIZE}_{run_id}_output.txt") as file:
