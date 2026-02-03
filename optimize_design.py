@@ -134,7 +134,7 @@ def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_c
 			if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_script) is None:
 				raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
 			else:
-				modified_script = re.sub(rf"{name} := [-.0-9]+;", f"{name} := {value};", modified_script)
+				modified_script = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_script)
 
 		os.makedirs("generated", exist_ok=True)
 		with open(f'generated/{FILE_TO_OPTIMIZE}_{run_id}.fox', 'w') as file:
@@ -188,7 +188,7 @@ def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
 
 def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 	for pattern in [
-		r"\b(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+		r"\b(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9eE]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
 		r"\bWRITE out '(?P<name>[A-Za-z0-9_ ]+):'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
 	]:
 		match = re.search(pattern, line)
