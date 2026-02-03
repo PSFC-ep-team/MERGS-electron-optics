@@ -1,25 +1,28 @@
 import re
-from typing import Tuple, Dict, Sequence, List
+from typing import Tuple, Dict, List
 
 from numpy import sin, cos, pi, zeros_like, linspace, hypot
 
 FILE_TO_OPTIMIZE = "mergs_ion_optics"
 PARAMETER_STRING = """
-foil_width := 0.2000000E-01;
-foil_height := 0.2000000E-01;
-aperture_width := 0.2000000E-01;
-aperture_height := 0.2000000E-01;
-p_dipole_field := 0.3163845;
-p_dipole_length := 0.1945813;
-p_drift_pre_aperture := 0.2500000;
-p_drift_pre_bend := 0.5197086;
-p_drift_post_bend := 0.4414709;
-p_shape_in_1 := 0.4501421;
-p_shape_in_2 :=  5.496986;
+foil_width := 0.3000000E-01;
+foil_height := 0.3000000E-01;
+aperture_width := 0.3000000E-01;
+aperture_height := 0.3000000E-01;
+p_m5_quad_field := 0.1605713;
+p_m5_hex_field :=  0.000000;
+p_dipole_field := 0.3468082;
+p_m5_length := 0.2436876E-01;
+p_dipole_length := 0.1923864;
+p_drift_pre_aperture := 0.5000000;
+p_drift_pre_bend := 0.2540042;
+p_drift_post_bend := 0.3399309;
+p_shape_in_1 := 0.6623008;
+p_shape_in_2 :=  6.541441;
 p_shape_in_3 :=  0.000000;
-p_shape_out_1 := 0.1685695;
-p_shape_out_2 := -4.624851;
-p_shape_out_3 :=  12.75657;
+p_shape_out_1 := 0.4610903;
+p_shape_out_2 := -4.101332;
+p_shape_out_3 :=  0.000000;
 """
 
 
@@ -46,6 +49,11 @@ def draw_magnets():
 	draw_plane(
 		paths, x, y, θ,
 		parameters["aperture_width"]/2,
+	)
+	x, y = draw_multipole_magnet(
+		paths, x, y, θ,
+		parameters["p_m5_length"],
+		0.02,
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
@@ -99,6 +107,28 @@ def draw_plane(
 def draw_drift_length(
 		graphic: List[Path], x: float, y: float, θ: float, length: float
 ) -> Tuple[float, float]:
+	line = [
+		("M", [x, y]),
+		("L", [x + length*cos(θ), y + length*sin(θ)]),
+	]
+	graphic.append(Path(klass="central-ray", commands=line, zorder=2))
+
+	x, y = line[-1][1]
+	return x, y
+
+
+def draw_multipole_magnet(
+		graphic: List[Path], x: float, y: float, θ: float, length: float, radius: float
+) -> Tuple[float, float]:
+	block = [
+		("M", [x + radius*sin(θ), y - radius*cos(θ)]),
+		("L", [x - radius*sin(θ), y + radius*cos(θ)]),
+		("L", [x - radius*sin(θ) + length*cos(θ), y + radius*cos(θ) + length*sin(θ)]),
+		("L", [x + radius*sin(θ) + length*cos(θ), y - radius*cos(θ) + length*sin(θ)]),
+		("Z", []),
+	]
+	graphic.append(Path(klass="magnet", commands=block, zorder=1))
+
 	line = [
 		("M", [x, y]),
 		("L", [x + length*cos(θ), y + length*sin(θ)]),

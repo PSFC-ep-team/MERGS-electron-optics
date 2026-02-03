@@ -11,25 +11,32 @@ VARIABLE foil_height 1;
 VARIABLE aperture_width 1;
 VARIABLE aperture_height 1;
 
-VARIABLE shape_in 1 3;
 VARIABLE p_shape_in_1 1;
 VARIABLE p_shape_in_2 1;
 VARIABLE p_shape_in_3 1;
-VARIABLE shape_out 1 3;
 VARIABLE p_shape_out_1 1;
 VARIABLE p_shape_out_2 1;
 VARIABLE p_shape_out_3 1;
-VARIABLE shape_zero 1 3;
 
+VARIABLE p_m5_quad_field 1;
+VARIABLE p_m5_hex_field 1;
 VARIABLE p_dipole_field 1;
+VARIABLE p_m5_length 1;
 VARIABLE p_dipole_length 1;
 VARIABLE p_drift_pre_aperture 1;
 VARIABLE p_drift_pre_bend 1;
 VARIABLE p_drift_post_bend 1;
 
+VARIABLE dipole_bend_angle 1;
+VARIABLE dipole_bend_radius 1;
+VARIABLE dipole_gap_height 1;
+
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
 VARIABLE num_rays 1;
+
+VARIABLE beam_width 1;
+VARIABLE beam_height 1;
 
 VARIABLE resolution 1 3;
 VARIABLE focal_plane_tilt 1;
@@ -80,8 +87,8 @@ PROCEDURE ELT_DRIFT_LENGTH length;
     DL length; {drift length}
 ENDPROCEDURE;
 { Create a fifth order multipole magnet. }
-PROCEDURE ELT_MULTIPOLE_5 length b_quad b_hex b_oct b_dec b_dodec bore;
-    M5 length b_quad b_hex b_oct b_dec b_dodec bore;
+PROCEDURE ELT_MULTIPOLE_5 length b_quad_field b_hex_field b_oct b_dec b_dodec bore;
+    M5 length b_quad_field b_hex_field b_oct b_dec b_dodec bore;
 ENDPROCEDURE;
 {
     Create a combined function bending magnet with given radius and
@@ -151,6 +158,43 @@ PROCEDURE transform_rays;
 	ENDLOOP;
 ENDPROCEDURE;
 
+{ set beam_width and beam_height to the instantaneous ray range }
+PROCEDURE calculate_beam_size;
+    VARIABLE min_x 1;
+    VARIABLE max_x 1;
+    VARIABLE min_y 1;
+    VARIABLE max_y 1;
+	VARIABLE i_ray 1;
+
+    transform_rays;
+
+    min_x := 1e10;
+    max_x := -1e10;
+    min_y := 1e10;
+    max_y := -1e10;
+    LOOP i_ray 1 num_rays;
+        { for y, look at all ray energies }
+        IF output_rays(i_ray,3)<min_y;
+            min_y := output_rays(i_ray,3);
+        ENDIF;
+        IF output_rays(i_ray,3)>max_y;
+            max_y := output_rays(i_ray,3);
+        ENDIF;
+        { for x, look at only central rays }
+        IF (input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0);
+            IF output_rays(i_ray,1)<min_x;
+                min_x := output_rays(i_ray,1);
+            ENDIF;
+            IF output_rays(i_ray,1)>max_x;
+                max_x := output_rays(i_ray,1);
+            ENDIF;
+        ENDIF;
+    ENDLOOP;
+
+    beam_width := max_x - min_x;
+    beam_height := max_y - min_y;
+ENDPROCEDURE;
+
 { determine the distance from the last element to the point of best first-order focus }
 PROCEDURE calculate_final_drift;
     VARIABLE first_derivative 1;
@@ -206,7 +250,7 @@ PROCEDURE evaluate_spectrometer;
             ENDIF;
         ENDLOOP;
         spot_size := SQRT(sum_x2/count - (sum_x/count)^2);
-        dispersion := ME(1,6) + 2*ME(1,66)*d_energy + 3*ME(1,666)*d_energy^2;
+        dispersion := ME(1,6) + 2*ME(1,66)*d_energy + 3*ME(1,666)*d_energy^2 + 4*ME(1,6666)*d_energy^3 + 5*ME(1,66666)*d_energy^4;
         resolution(i_energy) := spot_size*2.355/dispersion; {(relative)}
     ENDLOOP;
 
@@ -216,30 +260,10 @@ PROCEDURE evaluate_spectrometer;
     denominator := (ME(1,6)^2+ME(1,1)^2*ME(1,26)^2)^1.5;
     focal_plane_bend := numerator/denominator; {m^-1}
 
-    min_x := 1e10;
-    max_x := -1e10;
-    min_y := 1e10;
-    max_y := -1e10;
-    LOOP i_ray 1 num_rays;
-        { for y, look at all ray energies }
-        IF output_rays(i_ray,3)<min_y;
-            min_y := output_rays(i_ray,3);
-        ENDIF;
-        IF output_rays(i_ray,3)>max_y;
-            max_y := output_rays(i_ray,3);
-        ENDIF;
-        { for x, look at only central rays }
-        IF (input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0);
-            IF output_rays(i_ray,1)<min_x;
-                min_x := output_rays(i_ray,1);
-            ENDIF;
-            IF output_rays(i_ray,1)>max_x;
-                max_x := output_rays(i_ray,1);
-            ENDIF;
-        ENDIF;
-    ENDLOOP;
-    focal_plane_length := max_x - min_x; {{CONSTRAINT |min=0.00 |max=1.00 |bias=0 |unit=m}}
-    focal_plane_height := max_y - min_y; {{CONSTRAINT |min=0.00 |max=0.50 |bias=-1/0.02 |unit=m}}
+    calculate_beam_size;
+
+    focal_plane_length := beam_width;
+    focal_plane_height := beam_height;
 
     system_length := p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
  ENDPROCEDURE;
@@ -283,14 +307,14 @@ PROCEDURE config_spectrometer;
     VARIABLE order 1;
     VARIABLE i 1;
 
-    order := 2;
+    order := 6;
     CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
-    central_energy := 16; {MeV}
+    central_energy := 13.5; {MeV}
     CONFIG_AS_ELECTRON_BEAM central_energy;
 
     num_energies := 3;
     LOOP i 1 num_energies;
-        beam_d_energies(i) := -0.1 + 0.2*(i-1)/(num_energies-1);
+        beam_d_energies(i) := -0.3 + 0.6*(i-1)/(num_energies-1);
     ENDLOOP;
     beam_colors(1) := 4; {yellow}
     beam_colors(2) := 5; {green}
@@ -299,12 +323,13 @@ ENDPROCEDURE;
 
 PROCEDURE elt_spectrometer;
     VARIABLE central_momentum 1;
-    VARIABLE bend_radius 1;
-    VARIABLE bend_angle 1;
+    VARIABLE shape_in 1 3;
+    VARIABLE shape_out 1 3;
+    VARIABLE shape_zero 1 3;
 
     central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
-    bend_radius := central_momentum/(1.602e-19*p_dipole_field);
-    bend_angle := p_dipole_length/bend_radius*180/PI;
+    dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
+    dipole_bend_angle := p_dipole_length/dipole_bend_radius*180/PI;
 
     shape_in(1) := p_shape_in_1;
     shape_in(2) := p_shape_in_2;
@@ -324,11 +349,19 @@ PROCEDURE elt_spectrometer;
 
     ELT_APERTURE MAX(aperture_width, aperture_height)/2;
 
+    ELT_MULTIPOLE_5 p_m5_length p_m5_quad_field p_m5_hex_field 0 0 0 0.02;
+
     ELT_DRIFT_LENGTH p_drift_pre_bend;
 
+    calculate_beam_size;
+    dipole_gap_height := beam_height;
+
     ELT_BENDING
-        bend_radius bend_angle 0.09
+        dipole_bend_radius dipole_bend_angle 0.125
         shape_zero shape_in shape_out 3;
+
+    calculate_beam_size;
+    dipole_gap_height := MAX(dipole_gap_height, beam_height);
 
     calculate_final_drift;
     ELT_DRIFT_LENGTH p_drift_post_bend;
@@ -353,23 +386,26 @@ PROCEDURE main;
     config_spectrometer;
 
     { set upper bound for the foil dimensions }
-    foil_width := 0.02;
-    foil_height := 0.02;
-    aperture_width := 0.02;
-    aperture_height := 0.02;
-    p_drift_pre_aperture := 0.25;
+    foil_width := 0.03;
+    foil_height := 0.03;
+    aperture_width := 0.03;
+    aperture_height := 0.03;
+    p_drift_pre_aperture := 0.50;
 
     { set the ion-optic parameters }
-    p_dipole_field := 0.3163845; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.10 |unit=T}}
-    p_dipole_length := 0.1945813; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
-    p_drift_pre_bend := 0.5197086; {{PARAM |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=1 |bias=-1/0.10 |unit=m}}
-    p_shape_in_1 := 0.4501421; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_in_2 := 5.496986; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
-    p_shape_in_3 := 0; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^2}}
-    p_shape_out_1 := 0.1685695; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_shape_out_2 := -4.582151; {{CONSTRAINT |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
-    p_shape_out_3 := 12.75657; {{PARAM |min=-500 |max=500 |bias=-1/20 |unit=1/m^3}}
+    p_m5_quad_field := 0.16057126824937037; {{PARAM |min=-1.5 |max=1.5 |bias=-1/0.05 |unit=T}}
+    p_m5_hex_field := 0;
+    p_dipole_field := 0.3468082475089708; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.05 |unit=T}}
+    p_m5_length := 0.024368764829077086; {{PARAM |min=0 |max=1 |bias=-1/0.01 |unit=m}}
+    p_dipole_length := 0.19238643281454304; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+    p_drift_pre_bend := 0.2540042038344795; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+    p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+    p_shape_in_1 := 0.6623008333034393; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+    p_shape_in_2 := 6.541441390402326; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
+    p_shape_in_3 := 0;
+    p_shape_out_1 := 0.46109030426459935; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+    p_shape_out_2 := -4.20; {{CONSTRAINT |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
+    p_shape_out_3 := 0;
 
     { ---- final hexapole optimization ---- }
 
@@ -412,7 +448,10 @@ PROCEDURE main;
     WRITE out 'foil_height := '&SF(foil_height, '(G13.7)')&';';
     WRITE out 'aperture_width := '&SF(aperture_width, '(G13.7)')&';';
     WRITE out 'aperture_height := '&SF(aperture_height, '(G13.7)')&';';
+    WRITE out 'p_m5_quad_field := '&SF(p_m5_quad_field, '(G13.7)')&';';
+    WRITE out 'p_m5_hex_field := '&SF(p_m5_hex_field, '(G13.7)')&';';
     WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(G13.7)')&';';
+    WRITE out 'p_m5_length := '&SF(p_m5_length, '(G13.7)')&';';
     WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G13.7)')&';';
     WRITE out 'p_drift_pre_aperture := '&SF(p_drift_pre_aperture, '(G13.7)')&';';
     WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G13.7)')&';';
@@ -423,6 +462,9 @@ PROCEDURE main;
     WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G13.7)')&';';
     WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G13.7)')&';';
     WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G13.7)')&';';
+
+    WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G13.7)')&';';
+    WRITE out 'dipole_bend_radius := '&SF(dipole_bend_radius, '(G13.7)')&';';
 
     { ---- final spectrometer ---- }
 
@@ -462,6 +504,7 @@ PROCEDURE main;
     WRITE out 'focal plane bend:' focal_plane_bend '/m';
     WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=0 |max=100 |bias=0 |unit=cm}}
     WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=50 |bias=-1/2.0 |unit=cm}}
+    WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';  {{CONSTRAINT |min=0.00 |max=50 |bias=-1/1.0 |unit=cm}}
     WRITE out 'system length:' system_length*100 'cm'; {{CONSTRAINT |min=0 |max=300 |bias=0 |unit=cm}}
     WRITE out 'algebraic resolution:';
     LOOP i 1 num_energies;
