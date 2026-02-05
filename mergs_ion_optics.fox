@@ -275,8 +275,10 @@ PROCEDURE gen_rays;
     VARIABLE d_energy 1;
     VARIABLE color 1;
     VARIABLE momentum_ratio 1;
+    VARIABLE theta_foil 1;
     VARIABLE x_foil 1;
     VARIABLE y_foil 1;
+    VARIABLE theta_aperture 1;
     VARIABLE x_aperture 1;
     VARIABLE y_aperture 1;
     VARIABLE x_angle 1;
@@ -285,19 +287,34 @@ PROCEDURE gen_rays;
     LOOP i_energy 1 num_energies;
         d_energy := beam_d_energies(i_energy);
         color := beam_colors(i_energy);
+        {this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization}
         momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 
-        LOOP x_foil -foil_width/2 foil_width/2 foil_width/2;
-            LOOP y_foil -foil_height/2 foil_height/2 foil_height/2;
-                LOOP x_aperture -aperture_width/2 aperture_width/2 aperture_width/2;
-                    LOOP y_aperture -aperture_height/2 aperture_height/2 aperture_height/2;
-                        x_angle := ATAN((x_aperture-x_foil)/p_drift_pre_aperture);
-                        y_angle := ATAN((y_aperture-y_foil)/p_drift_pre_aperture);
-                        SET_RAY x_foil momentum_ratio*SIN(x_angle)
-                                y_foil momentum_ratio*SIN(y_angle)
-                                0 d_energy 0 0 color;
-                    ENDLOOP;
-                ENDLOOP;
+        { iterate over an octagon inscribed in the aperture }
+        LOOP theta_aperture 0 2*PI PI/4;
+            IF theta_aperture<2*PI;
+	            x_aperture := aperture_width/2*COS(theta_aperture);
+	            y_aperture := aperture_height/2*SIN(theta_aperture);
+	        ELSEIF theta_aperture=2*PI;
+	            { add a ninth point in the center of the aperture }
+	            x_aperture := 0;
+	            y_aperture := 0;
+	        ENDIF;
+            { iterate over an octagon inscribed in the foil }
+	        LOOP theta_foil 0 2*PI PI/4;
+	            IF theta_foil<2*PI;
+		            x_foil := foil_width/2*COS(theta_foil);
+		            y_foil := foil_height/2*SIN(theta_foil);
+		        ELSEIF theta_foil=2*PI;
+		            { add a ninth point in the center of the foil }
+		            x_foil := 0;
+		            y_foil := 0;
+		        ENDIF;
+                x_angle := ATAN((x_aperture-x_foil)/p_drift_pre_aperture);
+                y_angle := ATAN((y_aperture-y_foil)/p_drift_pre_aperture);
+                SET_RAY x_foil momentum_ratio*SIN(x_angle)
+                        y_foil momentum_ratio*SIN(y_angle)
+                        0 d_energy 0 0 color;
             ENDLOOP;
         ENDLOOP;
     ENDLOOP;
