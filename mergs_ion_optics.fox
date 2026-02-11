@@ -431,7 +431,7 @@ PROCEDURE main;
 	aperture_height := 0.03;
 	p_drift_pre_aperture := 0.50;
 
-	{ set the ion-optic parameters }
+	{ set the electron-optic parameters }
 	p_m5_quad_field := 0.04093342842819654; {{PARAM |min=-1.5 |max=1.5 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
 	p_dipole_field := 0.31237327875023424; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.05 |unit=T}}

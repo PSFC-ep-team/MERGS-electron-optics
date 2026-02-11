@@ -1,11 +1,11 @@
-# MERGS ion optics
+# MERGS electron optics
 
-This is a repository for all things related to the MERGS ion optical system design that I think is worth version-controlling.
+This is a repository for all things related to the MERGS electron optical system design that I think is worth version-controlling.
 
 ## The magnet design
 
-Arguably the most important file here is `mergs_ion_optics.fox`.  This is a COSY script defining the current state-of-the-art ion-optical design.
-At some point, I might have multiple such files (for example, I'm curious how the ion optics would have to change if the aperture was much smaller than the foil or vice versa).
+Arguably the most important file here is `mergs_ion_optics.fox`.  This is a COSY script defining the current state-of-the-art electron-optical design.
+At some point, I might have multiple such files (for example, I'm curious how the electron optics would have to change if the aperture was much smaller than the foil or vice versa).
 However, as of this writing, there's just the one ground truth.
 
 To run it, simply install COSY, put `COSY.bin` on your path, and double-click it.
@@ -58,7 +58,7 @@ If you have any need to change the objective function, just make sure to alter t
 Before running the algorithm, there are four inputs that must be set in the Python file `optimize_design.py`.
 The first is the name of the COSY script to optimize.  This is currently `mergs_ion_optics.fox` but conceivably it could change if you wanted to optimize multiple different files.
 
-The twoth is the order of the ion optical calculation to perform.  Larger numbers are more accurate but slower.
+The twoth is the order of the electron optical calculation to perform.  Larger numbers are more accurate but slower.
 I wouldn't go below 2 tho, because there are weird chromatic effects introduced by COSY's linearization due to the way it parameterizes transverse momentum.
 
 The twoth is the "frugality".  This tells it how much to weigh cost over performance.

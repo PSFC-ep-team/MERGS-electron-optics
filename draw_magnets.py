@@ -33,7 +33,7 @@ CENTRAL_ENERGY = 13.5
 
 def draw_magnets():
 	"""
-	generate a nice vector graphic of the ion-optic system design.
+	generate a nice vector graphic of the electron-optic system design.
 	unlike COSY this will not include rays but will include face shaping.
 	"""
 	parameters = parse_parameters(PARAMETER_STRING)
