@@ -12,7 +12,7 @@ from numexpr import evaluate
 from scipy import optimize, stats
 
 
-FILE_TO_OPTIMIZE = "mergs_ion_optics"
+FILE_TO_OPTIMIZE = "mergs_electron_optics"
 ORDER = 6
 FRUGALITY = 0.1
 METHOD = "Nelder-Mead"  # one of "L-BFGS-B", "Nelder-Mead", or "differential evolution"
