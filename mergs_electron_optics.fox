@@ -33,7 +33,11 @@ VARIABLE m5_required_radius 1;
 VARIABLE dipole_bend_angle 1;
 VARIABLE dipole_bend_radius 1;
 VARIABLE dipole_min_bend_radius 1;
+VARIABLE dipole_max_bend_radius 1;
 VARIABLE dipole_gap_height 1;
+VARIABLE dipole_side_length 1;
+VARIABLE dipole_front_side_length 1;
+VARIABLE dipole_back_side_length 1;
 
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
@@ -247,10 +251,11 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE dispersion 1;
 	VARIABLE numerator 1;
 	VARIABLE denominator 1;
+	VARIABLE dipole_min_radius 1;
+	VARIABLE dipole_central_side_length 1;
+	VARIABLE dipole_front_side_displacement 1;
+	VARIABLE dipole_back_side_displacement 1;
 	VARIABLE min_x 1;
-	VARIABLE max_x 1;
-	VARIABLE min_y 1;
-	VARIABLE max_y 1;
 
 	transform_rays;
 
@@ -283,6 +288,17 @@ PROCEDURE evaluate_spectrometer;
 	focal_plane_height := beam_height;
 
 	system_length := p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
+
+	{ calculate the dimensions of the short side of the dipole's GFR to make sure it's not degenerate }
+	dipole_min_radius := dipole_min_bend_radius-1.5*dipole_gap_height; { extend it 1.5*gap_height to give the beam region some buffer }
+	min_x := dipole_min_radius-dipole_bend_radius;
+	dipole_central_side_length := dipole_min_radius*dipole_bend_angle*PI/180; {start with the arc length}
+	dipole_front_side_displacement := -p_shape_in_1*min_x-p_shape_in_2*min_x^2-p_shape_in_3*min_x^3; {calculate the difference in length due to entrance face shape}
+	dipole_back_side_displacement := -p_shape_out_1*min_x-p_shape_out_2*min_x^2-p_shape_out_3*min_x^3; {calculate the difference in length due to exit face shape}
+	dipole_front_side_length := dipole_central_side_length+dipole_front_side_displacement;
+	dipole_back_side_length := dipole_central_side_length+dipole_back_side_displacement;
+	dipole_side_length := dipole_central_side_length+dipole_front_side_displacement+dipole_back_side_displacement;
+
  ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
@@ -393,6 +409,7 @@ PROCEDURE elt_spectrometer;
 	calculate_beam_size TRUE;
 	dipole_gap_height := beam_height;
 	dipole_min_bend_radius := dipole_bend_radius+beam_min_x;
+	dipole_max_bend_radius := dipole_bend_radius+beam_max_x;
 
 	ELT_BENDING
 		dipole_bend_radius dipole_bend_angle p_dipole_halfwidth
@@ -401,6 +418,7 @@ PROCEDURE elt_spectrometer;
 	calculate_beam_size TRUE;
 	dipole_gap_height := MAX(dipole_gap_height, beam_height);
 	dipole_min_bend_radius := MIN(dipole_min_bend_radius, dipole_bend_radius+beam_min_x);
+	dipole_max_bend_radius := MAX(dipole_max_bend_radius, dipole_bend_radius+beam_max_x);
 
 	calculate_final_drift;
 	ELT_DRIFT_LENGTH p_drift_post_bend;
@@ -432,21 +450,21 @@ PROCEDURE main;
 	p_drift_pre_aperture := 0.50;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.04093342842819654; {{PARAM |min=-1.5 |max=1.5 |bias=-1/0.05 |unit=T}}
+	p_m5_quad_field := 0.047819216563033146; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.31237327875023424; {{PARAM |min=0.01 |max=1.5 |bias=-1/0.05 |unit=T}}
-	p_m5_length := 0.10995735476737262; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.3201551238789147; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_length := 0.11711622136886093; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.2038280258394883; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.19828846536156997; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.13;
-	p_drift_pre_bend := 0.2034160143880155; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+	p_drift_pre_bend := 0.2240526961580707; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
-	p_shape_in_1 := 0.5945187496841582; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.7618727591713235; {{PARAM |min=-20 |max=20 |bias=-1/1 |unit=1/m}}
-	p_shape_in_3 := 0;
-	p_shape_out_1 := 0.42876050745670663; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -3.44; {{CONSTRAINT |min=-20 |max=20 |bias=-1/1 |unit=1/m^2}}
-	p_shape_out_3 := 0;
+	p_shape_in_1 := 0.6509720617765862; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 5.195102507699408; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
+	p_shape_in_3 := 4.4563875525150625;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_1 := 0.45896666543290476; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -3.44; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
+	p_shape_out_3 := -1.3558667511656393;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
 
@@ -505,9 +523,14 @@ PROCEDURE main;
 	WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G13.7)')&';';
 	WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G13.7)')&';';
 	WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G13.7)')&';';
-
+	WRITE out '';
 	WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G13.7)')&';';
-	WRITE out 'dipole_bend_radius := '&SF(dipole_bend_radius, '(G13.7)')&';';
+	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G13.7)')&';';
+	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G13.7)')&';';
+	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G13.7)')&';';
+	WRITE out 'dipole_gap_height := '&SF(dipole_gap_height, '(G13.7)')&';';
+	WRITE out 'hodoscope_right := '&SF(-position(1), '(G13.7)')&';';
+	WRITE out 'hodoscope_left := '&SF(position(num_energies), '(G13.7)')&';';
 
 	{ ---- final spectrometer ---- }
 
@@ -541,7 +564,10 @@ PROCEDURE main;
 	WRITE out '';
 
 	WRITE out 'quadripole beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'dipole overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
+	WRITE out 'dipole front arclength:' dipole_front_side_length; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole back arclength:' dipole_back_side_length; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole aspect ratio:' dipole_side_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'magnification:' ME(1,1) 'x';
 	WRITE out 'focus:' ME(1,2)*100 'cm/rad';
 	WRITE out 'dispersion:' ME(1,6)/central_energy*100 'cm/MeV';
