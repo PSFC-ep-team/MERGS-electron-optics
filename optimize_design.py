@@ -86,7 +86,8 @@ def objective_function(parameter_vector: List[float]) -> float:
 		if lines[i].endswith("MeV ->"):
 			resolutions.append(float(lines[i + 1].strip()))
 	outputs = {}
-	for i in range(i_resolution):
+	i_multienergy_quantities = lines.index("beam centroid:")
+	for i in range(i_multienergy_quantities):
 		if lines[i].endswith(":"):
 			key = lines[i][:-1].strip()
 			value = float(lines[i + 1])
