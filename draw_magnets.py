@@ -174,7 +174,7 @@ def draw_bending_magnet(
 	min_extended_radius = min_bend_radius - 1.5*gap_height
 	max_extended_radius = max_bend_radius + 1.5*gap_height
 
-	ξ = linspace(min_extended_radius - central_bend_radius, max_extended_radius - central_bend_radius, 21)
+	ξ = linspace(min_extended_radius - central_bend_radius, max_extended_radius - central_bend_radius, 101)
 	ζ_back = evaluate_polynomial(
 		ξ, [0] + in_shape_parameters,
 		lower_breakpoint=min_bend_radius - central_bend_radius, upper_breakpoint=max_bend_radius - central_bend_radius)
