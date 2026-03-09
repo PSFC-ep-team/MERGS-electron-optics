@@ -27,6 +27,11 @@ def optimize_design():
 	initial_guess = [parameter.default for parameter in parameters]
 	bounds = [(parameter.min, parameter.max) for parameter in parameters]
 	n_dims = len(initial_guess)
+
+	# check to make sure the initial guess is valid
+	objective_function(initial_guess, check=True)
+
+	# run the selected optimization algorithm
 	if METHOD == "L-BFGS-B":
 		result = optimize.minimize(
 			objective_function,
@@ -74,12 +79,13 @@ def optimize_design():
 	run_cosy(result.x, output_mode="GUI", run_id=f"optimal_{ORDER}th_{FRUGALITY}x", use_cache=False)
 
 
-def objective_function(parameter_vector: List[float]) -> float:
+def objective_function(parameter_vector: List[float], check=False) -> float:
 	""" run COSY, read its output, and calculate a number that quantifies the system. smaller should be better """
 	output = run_cosy(
 		parameter_vector,
 		output_mode="none",
-		run_id=f"proc{multiprocessing.current_process().pid}")
+		run_id=f"proc{multiprocessing.current_process().pid}",
+		use_cache=not check)
 
 	lines = output.split("\n")
 	i_resolution = lines.index("algebraic resolution:")
@@ -106,7 +112,10 @@ def objective_function(parameter_vector: List[float]) -> float:
 	for constraint in constraints:
 		value = outputs[constraint.name]
 		if value < constraint.min or value > constraint.max:
-			penalty = inf
+			if check:
+				raise ValueError(f"{constraint.name} is {value}, which is out of bounds [{constraint.min}, {constraint.max}]")
+			else:
+				penalty = inf
 		else:
 			penalty -= constraint.bias*abs(value)
 

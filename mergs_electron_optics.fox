@@ -220,17 +220,44 @@ ENDPROCEDURE;
 PROCEDURE calculate_final_drift;
 	VARIABLE first_derivative 1;
 	VARIABLE twoth_derivative 1;
-	VARIABLE i 1;
+	VARIABLE i_energy 1;
+	VARIABLE momentum_ratio 1;
+	VARIABLE count 1;
+	VARIABLE sum_a 1;
+	VARIABLE sum_x 1;
+	VARIABLE sum_a2 1;
+	VARIABLE sum_ax 1;
+	VARIABLE sum_x2 1;
+	VARIABLE i_ray 1;
+	VARIABLE x 1;
+	VARIABLE a 1;
 
 	transform_rays;
 
 	first_derivative := 0;
 	twoth_derivative := 0;
-	LOOP i 1 num_rays;
-		IF input_rays(i,6)=0;
-			first_derivative := first_derivative + output_rays(i,1)*output_rays(i,2);
-			twoth_derivative := twoth_derivative + output_rays(i,2)^2;
-		ENDIF;
+	LOOP i_energy 1 num_energies;
+		momentum_ratio := 1 + beam_d_energies(i_energy)/(1 + 0.5110/central_energy);
+		count := 0;
+		sum_a := 0;
+		sum_x := 0;
+		sum_a2 := 0;
+		sum_ax := 0;
+		sum_x2 := 0;
+		LOOP i_ray 1 num_rays;
+			IF input_rays(i_ray,6)=beam_d_energies(i_energy);
+				x := output_rays(i_ray,1);
+				a := output_rays(i_ray,2) / momentum_ratio;
+				count := count + 1;
+				sum_a := sum_a + a;
+				sum_x := sum_x + x;
+				sum_a2 := sum_a2 + a^2;
+				sum_ax := sum_ax + a*x;
+				sum_x2 := sum_x2 + x^2;
+			ENDIF;
+		ENDLOOP;
+		first_derivative := first_derivative + sum_ax/count - sum_a*sum_x/count^2;
+		twoth_derivative := twoth_derivative + sum_a2/count - sum_a^2/count^2;
 	ENDLOOP;
 
 	p_drift_post_bend := -first_derivative/twoth_derivative;
@@ -359,7 +386,7 @@ PROCEDURE config_spectrometer;
 
 	order := 6;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
-	central_energy := 13.25; {MeV}
+	central_energy := 13.2; {MeV}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 
 	num_energies := 3;
@@ -450,21 +477,21 @@ PROCEDURE main;
 	p_drift_pre_aperture := 0.50;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.047819216563033146; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_quad_field := 0.043545284528735274; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.3201551238789147; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
-	p_m5_length := 0.11711622136886093; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.29222176932852706; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_length := 0.11334094433980768; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.19828846536156997; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.20684474997885838; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.13;
-	p_drift_pre_bend := 0.2240526961580707; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+	p_drift_pre_bend := 0.26600302583988855; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
-	p_shape_in_1 := 0.6509720617765862; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.195102507699408; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
-	p_shape_in_3 := 4.4563875525150625;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
-	p_shape_out_1 := 0.45896666543290476; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_1 := 0.6654108658287559; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 4.9874613358243645; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
+	p_shape_in_3 := 8.102106156592981;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_1 := 0.4066716406331561; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
 	p_shape_out_2 := -3.44; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
-	p_shape_out_3 := -1.3558667511656393;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_3 := 0.6906049634755604;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
 

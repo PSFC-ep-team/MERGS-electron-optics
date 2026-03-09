@@ -11,30 +11,30 @@ foil_width := 0.3000000E-01;
 foil_height := 0.3000000E-01;
 aperture_width := 0.3000000E-01;
 aperture_height := 0.3000000E-01;
-p_m5_quad_field := 0.4781922E-01;
+p_m5_quad_field := 0.4354528E-01;
 p_m5_hex_field :=  0.000000;
-p_dipole_field := 0.3201551;
-p_m5_radius := 0.2927906E-01;
-p_m5_length := 0.1171162;
+p_dipole_field := 0.2922218;
+p_m5_radius := 0.2833524E-01;
+p_m5_length := 0.1133409;
 p_dipole_halfwidth := 0.1300000;
-p_dipole_length := 0.1982885;
+p_dipole_length := 0.2068447;
 p_drift_pre_aperture := 0.5000000;
-p_drift_pre_bend := 0.2240527;
-p_drift_post_bend := 0.5887938;
-p_shape_in_1 := 0.6509721;
-p_shape_in_2 :=  5.195103;
-p_shape_in_3 :=  4.456388;
-p_shape_out_1 := 0.4589667;
-p_shape_out_2 := -2.745608;
-p_shape_out_3 := -1.355867;
+p_drift_pre_bend := 0.2660030;
+p_drift_post_bend := 0.6585145;
+p_shape_in_1 := 0.6654109;
+p_shape_in_2 :=  4.987461;
+p_shape_in_3 :=  8.102106;
+p_shape_out_1 := 0.4066716;
+p_shape_out_2 := -2.471367;
+p_shape_out_3 := 0.6906050;
 
-dipole_bend_angle :=  77.82928;
-dipole_max_bend_radius := 0.2745744;
-dipole_central_bend_radius := 0.1459745;
-dipole_min_bend_radius := 0.7757664E-01;
-dipole_gap_height := 0.3994749E-01;
-hodoscope_right := 0.5552835;
-hodoscope_left := 0.1747930;
+dipole_bend_angle :=  75.72551;
+dipole_max_bend_radius := 0.2944529;
+dipole_central_bend_radius := 0.1565038;
+dipole_min_bend_radius := 0.8419085E-01;
+dipole_gap_height := 0.4256013E-01;
+hodoscope_right := 0.5531652;
+hodoscope_left := 0.1927696;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -47,7 +47,7 @@ def draw_magnets():
 	parameters = parse_parameters(PARAMETER_STRING)
 
 	paths = []
-	x = .15
+	x = .05
 	y = .15
 	θ = 0
 
@@ -271,7 +271,7 @@ def evaluate_polynomial(x, coefficients, lower_breakpoint=-inf, upper_breakpoint
 def write_SVG(filename: str, paths: List[Path]) -> None:
 	svg_string = (
 		'<?xml version="1.0" encoding="UTF-8"?>\n'
-		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 1.00 1.00" width="1m" height="1m">\n'
+		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 1.50 1.50" width="150cm" height="150cm">\n'
 		'  <style>\n'
 		'    .magnet { fill: #8b959e; stroke: none; }\n'
 		'    .plane { fill: none; stroke: #8b959e; stroke-width: .01; stroke-linecap: butt; }\n'
