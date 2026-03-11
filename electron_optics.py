@@ -1,8 +1,10 @@
+"""
+code for evaluating and optimizing the magnet system using COSY
+"""
 from __future__ import annotations
 
 import multiprocessing
 import os
-import pickle
 import re
 import subprocess
 from shutil import copyfile
@@ -14,35 +16,50 @@ from numexpr import evaluate
 from scipy import optimize, stats
 
 
-FILE_TO_OPTIMIZE = "mergs_electron_optics"
-ORDER = 6
-FRUGALITY = 0.1
-METHOD = "Nelder-Mead"  # one of "L-BFGS-B", "Nelder-Mead", or "differential evolution"
-
-
-def optimize_design():
-	""" optimize a COSY file by tweaking the given parameters to minimize the defined objective function """
-	infer_parameter_names()
+def optimize_design(
+		name: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		frugality: float, order: int, method="Nelder-Mead"):
+	"""
+	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
+	:param name: a name for the final optimized COSY file
+	:param foil_diameter: the foil size in m
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture size in m
+	:param frugality: the weight to put on the cost constraints
+	:param order: the highest order of term to include in COSY's calculations
+	:param method: one of "L-BFGS-B", "Nelder-Mead", or "differential evolution"
+	"""
+	with open(f'mergs_electron_optics.fox', 'r') as file:
+		script_content = file.read()
+	script_content = set_hyperparameters(
+		script_content,
+		foil_width=foil_diameter, foil_height=foil_diameter,
+		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
+		drift_pre_aperture=aperture_distance, order=order)
+	parameters, constraints = infer_parameter_names(script_content)
+	script = Script(script_content, parameters, constraints)
 
 	initial_guess = [parameter.default for parameter in parameters]
 	bounds = [(parameter.min, parameter.max) for parameter in parameters]
 	n_dims = len(initial_guess)
 
 	# check to make sure the initial guess is valid
-	objective_function(initial_guess, check=True)
+	objective_function(initial_guess, script, frugality, check=True)
 
 	# run the selected optimization algorithm
-	if METHOD == "L-BFGS-B":
+	if method == "L-BFGS-B":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
+			args=(script, frugality),
 			bounds=bounds,
 			method='L-BFGS-B',
 		)
-	elif METHOD == "Nelder-Mead":
+	elif method == "Nelder-Mead":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
+			args=(script, frugality),
 			bounds=bounds,
 			method='Nelder-Mead',
 			options=dict(
@@ -51,10 +68,11 @@ def optimize_design():
 				disp=True,
 			)
 		)
-	elif METHOD == "differential evolution":
+	elif method == "differential evolution":
 		result = optimize.differential_evolution(
 			objective_function,
 			bounds,
+			args=(script, frugality),
 			popsize=3*n_dims,
 			init=generate_initial_sample(initial_guess, bounds, 3*n_dims),
 			disp=True,
@@ -63,29 +81,25 @@ def optimize_design():
 			updating="deferred",
 		)
 	else:
-		raise ValueError(f"I don't support the optimization method '{METHOD}'.")
-
-	# save the final cache
-	with open(f"generated/{FILE_TO_OPTIMIZE}_{ORDER}_cache.pkl", "wb") as file:
-		pickle.dump(cache, file)
+		raise ValueError(f"I don't support the optimization method '{method}'.")
 
 	# clean up the temporary files
 	for filename in os.listdir("generated"):
 		if re.search(r"_proc[0-9]+", filename):
 			os.remove(f"generated/{filename}")
 
-	# show the final result
+	# show and save the final result
 	print(result)
-	run_cosy(result.x, output_mode="GUI", run_id=f"optimal_{ORDER}th_{FRUGALITY}x", use_cache=False)
+	run_cosy(script, result.x, output_mode="GUI", run_id=f"{name}_optimal")
 
 
-def objective_function(parameter_vector: List[float], check=False) -> float:
+def objective_function(parameter_vector: List[float], script: Script, frugality: float, check=False) -> float:
 	""" run COSY, read its output, and calculate a number that quantifies the system. smaller should be better """
 	output = run_cosy(
+		script,
 		parameter_vector,
 		output_mode="none",
-		run_id=f"proc{multiprocessing.current_process().pid}",
-		use_cache=not check)
+		run_id=f"proc{multiprocessing.current_process().pid}")
 
 	lines = output.split("\n")
 	i_resolution = lines.index("algebraic resolution:")
@@ -107,9 +121,9 @@ def objective_function(parameter_vector: List[float], check=False) -> float:
 	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
 
 	penalty = 0
-	for parameter, value in zip(parameters, parameter_vector):
+	for parameter, value in zip(script.parameters, parameter_vector):
 		penalty -= parameter.bias*abs(value)
-	for constraint in constraints:
+	for constraint in script.constraints:
 		value = outputs[constraint.name]
 		if value < constraint.min or value > constraint.max:
 			if check:
@@ -119,78 +133,77 @@ def objective_function(parameter_vector: List[float], check=False) -> float:
 		else:
 			penalty -= constraint.bias*abs(value)
 
-	cost = FRUGALITY*penalty + 2*log(mean_resolution)
+	cost = frugality*penalty + 2*log(mean_resolution)
 
 	print("[" + ", ".join(f"{value:g}" for value in parameter_vector) + "]")
-	print(f"\t-> {FRUGALITY}*{penalty:.6g} + 2*log({mean_resolution:5.2f} keV) = {cost:.6g}")
+	print(f"\t-> {frugality}*{penalty:.6g} + 2*log({mean_resolution:5.2f} keV) = {cost:.6g}")
 	return cost
 
 
-def run_cosy(parameter_vector: List[float], output_mode: str, run_id: str, use_cache=True) -> str:
+def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, run_id: str) -> str:
 	""" get the observable values at these perturbations """
-	assert len(parameter_vector) == len(parameters)
+	assert len(parameter_vector) == len(script.parameters)
 
 	graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
-	run_key = tuple(parameter_vector)
-	if not use_cache or run_key not in cache:
-		modified_script = script
-		# turn off all graphics output
-		modified_script = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_script)
-		# set the order of the calculation to the desired value
-		modified_script = re.sub(r"order := [0-9];", f"order := {ORDER};", modified_script)
-		# set the output filename appropriately
-		modified_script = re.sub(r"out_filename := '.*';", f"out_filename := '{FILE_TO_OPTIMIZE}_{run_id}_output.txt';", modified_script)
-		for i, parameter in enumerate(parameters):
-			name = parameter.name
-			value = parameter_vector[i]
-			if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_script) is None:
-				raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
-			else:
-				modified_script = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_script)
+	modified_content = script.content
+	# turn off all graphics output
+	modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
+	# set the output filename appropriately
+	modified_content = re.sub(r"out_filename := '.*';", f"out_filename := '{run_id}_output.txt';", modified_content)
+	for i, parameter in enumerate(script.parameters):
+		name = parameter.name
+		value = parameter_vector[i]
+		if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_content) is None:
+			raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
+		else:
+			modified_content = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_content)
 
-		os.makedirs("generated", exist_ok=True)
-		with open(f'generated/{FILE_TO_OPTIMIZE}_{run_id}.fox', 'w') as file:
-			file.write(modified_script)
-		if not os.path.isfile("generated/COSY.bin") or os.path.getsize("generated/COSY.bin") == 0:
-			if os.path.isfile("COSY.bin"):
-				copyfile("COSY.bin", "generated/COSY.bin")
-			else:
-				raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
+	os.makedirs("generated", exist_ok=True)
+	with open(f'generated/{run_id}.fox', 'w') as file:
+		file.write(modified_content)
+	if not os.path.isfile("generated/COSY.bin") or os.path.getsize("generated/COSY.bin") == 0:
+		if os.path.isfile("COSY.bin"):
+			copyfile("COSY.bin", "generated/COSY.bin")
+		else:
+			raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
 
-		subprocess.run(
-			['cosy', f'{FILE_TO_OPTIMIZE}_{run_id}'],
-			cwd="generated", check=True, stdout=subprocess.DEVNULL)
+	subprocess.run(
+		['cosy', run_id],
+		cwd="generated", check=True, stdout=subprocess.DEVNULL)
 
-		if output_mode == "GUI":
-			return "(no output captured)"
+	if output_mode == "GUI":
+		return "(no output captured)"
 
-		# store full parameter sets and their resulting COSY outputs in the cache
-		with open(f"generated/{FILE_TO_OPTIMIZE}_{run_id}_output.txt") as file:
-			output = file.read()
-		output = re.sub(r"[\n\r]+", "\n", output)
-		if "$$$ ERROR" in output or "### ERROR" in output:
-			print(output)
-			raise RuntimeError("COSY threw an error")
-		if "******" in output:
-			print(output)
-			raise RuntimeError("COSY screwed up a number format")
+	with open(f"generated/{run_id}_output.txt") as file:
+		output = file.read()
+	output = re.sub(r"[\n\r]+", "\n", output)
+	if "$$$ ERROR" in output or "### ERROR" in output:
+		print(output)
+		raise RuntimeError("COSY threw an error")
+	if "******" in output:
+		print(output)
+		raise RuntimeError("COSY screwed up a number format")
 
-		cache[run_key] = output
-		if len(cache)%20 == 0:
-			with open(f"generated/{FILE_TO_OPTIMIZE}_{ORDER}_cache.pkl", "wb") as file:
-				pickle.dump(cache, file)
-
-	return cache[run_key]
+	return output
 
 
-def infer_parameter_names() -> Tuple[List[Parameter], List[Parameter]]:
-	""" read a COSY file to pull out the list of tunable inputs and the list of constrained inputs """
+def set_hyperparameters(content: str, **hyperparameters) -> str:
+	""" set the order of the calculation to the desired value """
+	for key, value in hyperparameters.items():
+		if not re.search(rf"{key} := [-0-9.]+;", content):
+			raise ValueError(f"This script doesn't seem to have a '{key}'.")
+		content = re.sub(rf"{key} := [-0-9.]+;", f"{key} := {value};", content)
+	return content
+
+
+def infer_parameter_names(content: str) -> Tuple[List[Parameter], List[Parameter]]:
+	""" pull out the list of tunable inputs and the list of constrained inputs """
 	variable_lists = {}
 	for variable_type in ["PARAM", "CONSTRAINT"]:
 		variable_lists[variable_type] = []
-		for tagged_line in re.finditer(r"^.*\{\{" + variable_type + r".*\}\}.*$", script, re.MULTILINE):
+		for tagged_line in re.finditer(r"^.*\{\{" + variable_type + r".*\}\}.*$", content, re.MULTILINE):
 			variable_lists[variable_type].append(
-				infer_single_parameter_name(variable_type, script[tagged_line.start():tagged_line.end()]))
+				infer_single_parameter_name(variable_type, content[tagged_line.start():tagged_line.end()]))
 	parameters = variable_lists["PARAM"]
 	constraints = variable_lists["CONSTRAINT"]
 	if len(parameters) == 0:
@@ -276,6 +289,13 @@ def generate_initial_sample(
 	return array(vertices)
 
 
+class Script:
+	def __init__(self, content: str, parameters: list[Parameter], constraints: list[Parameter]):
+		self.content = content
+		self.parameters = parameters
+		self.constraints = constraints
+
+
 class Parameter:
 	def __init__(self, name: str, default: float, min: float, max: float, bias: float, unit: str):
 		self.name = name
@@ -286,17 +306,9 @@ class Parameter:
 		self.unit = unit
 
 
-with open(f'{FILE_TO_OPTIMIZE}.fox', 'r') as file:
-	script = file.read()
-
-try:
-	with open(f"generated/{FILE_TO_OPTIMIZE}_{ORDER}_cache.pkl", "rb") as file:
-		cache = pickle.load(file)
-except FileNotFoundError:
-	cache = {}
-
-parameters, constraints = infer_parameter_names()
-
-
 if __name__ == '__main__':
-	optimize_design()
+	optimize_design(
+		"mergs_electron_optics",
+		.03, .50, .03, 0.1,
+		order=6, method="Nelder-Mead",
+	)

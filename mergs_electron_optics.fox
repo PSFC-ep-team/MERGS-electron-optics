@@ -10,6 +10,7 @@ VARIABLE foil_width 1;
 VARIABLE foil_height 1;
 VARIABLE aperture_width 1;
 VARIABLE aperture_height 1;
+VARIABLE drift_pre_aperture 1;
 
 VARIABLE p_shape_in_1 1;
 VARIABLE p_shape_in_2 1;
@@ -25,7 +26,6 @@ VARIABLE p_m5_radius 1;
 VARIABLE p_m5_length 1;
 VARIABLE p_dipole_halfwidth 1;
 VARIABLE p_dipole_length 1;
-VARIABLE p_drift_pre_aperture 1;
 VARIABLE p_drift_pre_bend 1;
 VARIABLE p_drift_post_bend 1;
 
@@ -370,8 +370,8 @@ PROCEDURE gen_rays;
 					x_foil := 0;
 					y_foil := 0;
 				ENDIF;
-				x_angle := ATAN((x_aperture-x_foil)/p_drift_pre_aperture);
-				y_angle := ATAN((y_aperture-y_foil)/p_drift_pre_aperture);
+				x_angle := ATAN((x_aperture-x_foil)/drift_pre_aperture);
+				y_angle := ATAN((y_aperture-y_foil)/drift_pre_aperture);
 				SET_RAY x_foil momentum_ratio*SIN(x_angle)
 				        y_foil momentum_ratio*SIN(y_angle)
 				        0 d_energy 0 0 color;
@@ -422,7 +422,7 @@ PROCEDURE elt_spectrometer;
 
 	ELT_APERTURE MAX(foil_width, foil_height)/2;
 
-	ELT_DRIFT_LENGTH p_drift_pre_aperture;
+	ELT_DRIFT_LENGTH drift_pre_aperture;
 
 	ELT_APERTURE MAX(aperture_width, aperture_height)/2;
 
@@ -474,7 +474,7 @@ PROCEDURE main;
 	foil_height := 0.03;
 	aperture_width := 0.03;
 	aperture_height := 0.03;
-	p_drift_pre_aperture := 0.50;
+	drift_pre_aperture := 0.50;
 
 	{ set the electron-optic parameters }
 	p_m5_quad_field := 0.043545284528735274; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
@@ -541,7 +541,7 @@ PROCEDURE main;
 	WRITE out 'p_m5_length := '&SF(p_m5_length, '(G13.7)')&';';
 	WRITE out 'p_dipole_halfwidth := '&SF(p_dipole_halfwidth, '(G13.7)')&';';
 	WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G13.7)')&';';
-	WRITE out 'p_drift_pre_aperture := '&SF(p_drift_pre_aperture, '(G13.7)')&';';
+	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G13.7)')&';';
 	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G13.7)')&';';
 	WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G13.7)')&';';
 	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G13.7)')&';';

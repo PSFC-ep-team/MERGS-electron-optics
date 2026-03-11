@@ -18,7 +18,7 @@ p_m5_radius := 0.2833524E-01;
 p_m5_length := 0.1133409;
 p_dipole_halfwidth := 0.1300000;
 p_dipole_length := 0.2068447;
-p_drift_pre_aperture := 0.5000000;
+drift_pre_aperture := 0.5000000;
 p_drift_pre_bend := 0.2660030;
 p_drift_post_bend := 0.6585145;
 p_shape_in_1 := 0.6654109;
@@ -57,7 +57,7 @@ def draw_magnets():
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
-		parameters["p_drift_pre_aperture"],
+		parameters["drift_pre_aperture"],
 	)
 	draw_plane(
 		paths, x, y, θ,
