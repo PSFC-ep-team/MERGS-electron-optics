@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 from shutil import copyfile
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Any, Optional, Literal
 
 from numpy import sqrt, array_equal, array, empty_like, inf, log
 from numpy.typing import NDArray
@@ -18,7 +18,7 @@ from scipy import optimize, stats
 
 def optimize_design(
 		name: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order: int, method="Nelder-Mead"):
+		frugality: float, order: int, method: str):
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param name: a name for the final optimized COSY file
@@ -27,7 +27,7 @@ def optimize_design(
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
-	:param method: one of "L-BFGS-B", "Nelder-Mead", or "differential evolution"
+	:param method: one of "Nelder-Mead", or "differential evolution"
 	"""
 	with open(f'mergs_electron_optics.fox', 'r') as file:
 		script_content = file.read()
@@ -39,27 +39,33 @@ def optimize_design(
 	parameters, constraints = infer_parameter_names(script_content)
 	script = Script(script_content, parameters, constraints)
 
+	cache = {}
+
 	initial_guess = [parameter.default for parameter in parameters]
 	bounds = [(parameter.min, parameter.max) for parameter in parameters]
 	n_dims = len(initial_guess)
 
 	# check to make sure the initial guess is valid
-	objective_function(initial_guess, script, frugality, check=True)
+	objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
 
 	# run the selected optimization algorithm
-	if method == "L-BFGS-B":
+	if method == "SLSQP":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality),
+			args=(script, frugality, "ignore", cache),
 			bounds=bounds,
-			method='L-BFGS-B',
+			constraints=reformat_constraints(script, cache),
+			method='SLSQP',
+			options=dict(
+				disp=True,
+			)
 		)
 	elif method == "Nelder-Mead":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality),
+			args=(script, frugality, "inf", cache),
 			bounds=bounds,
 			method='Nelder-Mead',
 			options=dict(
@@ -72,7 +78,7 @@ def optimize_design(
 		result = optimize.differential_evolution(
 			objective_function,
 			bounds,
-			args=(script, frugality),
+			args=(script, frugality, "inf", cache),
 			popsize=3*n_dims,
 			init=generate_initial_sample(initial_guess, bounds, 3*n_dims),
 			disp=True,
@@ -90,34 +96,33 @@ def optimize_design(
 
 	# show and save the final result
 	print(result)
-	run_cosy(script, result.x, output_mode="GUI", run_id=f"{name}_optimal")
+	run_cosy(script, result.x, output_mode="GUI", cache=None, run_id=f"{name}_optimal")
 
 
-def objective_function(parameter_vector: List[float], script: Script, frugality: float, check=False) -> float:
-	""" run COSY, read its output, and calculate a number that quantifies the system. smaller should be better """
-	output = run_cosy(
+def objective_function(
+		parameter_vector: List[float], script: Script, frugality: float,
+		constraints: Literal['ignore', 'inf', 'error'],
+		cache: dict[tuple, dict[str, Any]]) -> float:
+	"""
+	run COSY, read its output, and calculate a number that quantifies the system. smaller should be better.
+	:param parameter_vector: the values of the parameters at which to evaluate it
+	:param script: the COSY script to run with those parameters
+	:param frugality: how much to weit the parameter biases
+	:param constraints: how to deal with constraints.
+	                    - if 'ignore', constraint biases will be added to the cost but mins and maxen will be ignored.
+	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
+	                    - if 'error', any constraint that's out of bounds will raise an error.
+	:param cache: the saved COSY runs
+	"""
+	if constraints not in ['ignore', 'inf', 'error']:
+		raise ValueError(f"Unrecognized constraint violation option: '{constraints}'.")
+
+	outputs = run_cosy(
 		script,
 		parameter_vector,
 		output_mode="none",
-		run_id=f"proc{multiprocessing.current_process().pid}")
-
-	lines = output.split("\n")
-	i_resolution = lines.index("algebraic resolution:")
-	resolutions = []
-	for i in range(i_resolution + 1, len(lines), 3):
-		if lines[i].endswith("MeV ->"):
-			resolutions.append(float(lines[i + 1].strip()))
-	outputs = {}
-	i_multienergy_quantities = lines.index("beam centroid:")
-	for i in range(i_multienergy_quantities):
-		if lines[i].endswith(":"):
-			key = lines[i][:-1].strip()
-			value = float(lines[i + 1])
-			outputs[key] = value
-		elif ":=" in lines[i]:
-			key, value = lines[i].replace(";", "").split(":=")
-			outputs[key.strip()] = float(value.strip())
-
+		cache=cache)
+	resolutions = outputs["resolutions"]
 	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
 
 	penalty = 0
@@ -126,12 +131,11 @@ def objective_function(parameter_vector: List[float], script: Script, frugality:
 	for constraint in script.constraints:
 		value = outputs[constraint.name]
 		if value < constraint.min or value > constraint.max:
-			if check:
+			if constraints == 'error':
 				raise ValueError(f"{constraint.name} is {value}, which is out of bounds [{constraint.min}, {constraint.max}]")
-			else:
+			elif constraints == 'inf':
 				penalty = inf
-		else:
-			penalty -= constraint.bias*abs(value)
+		penalty -= constraint.bias*abs(value)
 
 	cost = frugality*penalty + 2*log(mean_resolution)
 
@@ -140,51 +144,79 @@ def objective_function(parameter_vector: List[float], script: Script, frugality:
 	return cost
 
 
-def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, run_id: str) -> str:
+def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, run_id: Optional[str] = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
 	assert len(parameter_vector) == len(script.parameters)
 
+	if run_id is None:
+		run_id = f"proc{multiprocessing.current_process().pid}"
+
 	graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
-	modified_content = script.content
-	# turn off all graphics output
-	modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
-	# set the output filename appropriately
-	modified_content = re.sub(r"out_filename := '.*';", f"out_filename := '{run_id}_output.txt';", modified_content)
-	for i, parameter in enumerate(script.parameters):
-		name = parameter.name
-		value = parameter_vector[i]
-		if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_content) is None:
-			raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
-		else:
-			modified_content = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_content)
+	run_key = tuple(parameter_vector)
+	if cache is None or run_key not in cache:
+		modified_content = script.content
+		# turn off all graphics output
+		modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
+		# set the output filename appropriately
+		modified_content = re.sub(r"out_filename := '.*';", f"out_filename := '{run_id}_output.txt';", modified_content)
+		for i, parameter in enumerate(script.parameters):
+			name = parameter.name
+			value = parameter_vector[i]
+			if re.search(rf"{name} *:= *[-.0-9eE]+;", modified_content) is None:
+				raise ValueError(f"I couldn't figure out how to replace {name} in the script...")
+			else:
+				modified_content = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_content)
 
-	os.makedirs("generated", exist_ok=True)
-	with open(f'generated/{run_id}.fox', 'w') as file:
-		file.write(modified_content)
-	if not os.path.isfile("generated/COSY.bin") or os.path.getsize("generated/COSY.bin") == 0:
-		if os.path.isfile("COSY.bin"):
-			copyfile("COSY.bin", "generated/COSY.bin")
-		else:
-			raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
+		os.makedirs("generated", exist_ok=True)
+		with open(f'generated/{run_id}.fox', 'w') as file:
+			file.write(modified_content)
+		if not os.path.isfile("generated/COSY.bin") or os.path.getsize("generated/COSY.bin") == 0:
+			if os.path.isfile("COSY.bin"):
+				copyfile("COSY.bin", "generated/COSY.bin")
+			else:
+				raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
 
-	subprocess.run(
-		['cosy', run_id],
-		cwd="generated", check=True, stdout=subprocess.DEVNULL)
+		subprocess.run(
+			['cosy', run_id],
+			cwd="generated", check=True, stdout=subprocess.DEVNULL)
 
-	if output_mode == "GUI":
-		return "(no output captured)"
+		if output_mode == "GUI":
+			return {}
 
-	with open(f"generated/{run_id}_output.txt") as file:
-		output = file.read()
-	output = re.sub(r"[\n\r]+", "\n", output)
-	if "$$$ ERROR" in output or "### ERROR" in output:
-		print(output)
-		raise RuntimeError("COSY threw an error")
-	if "******" in output:
-		print(output)
-		raise RuntimeError("COSY screwed up a number format")
+		with open(f"generated/{run_id}_output.txt") as file:
+			output = file.read()
+		output = re.sub(r"[\n\r]+", "\n", output)
+		if "$$$ ERROR" in output or "### ERROR" in output or len(output) <= 4:
+			print(output)
+			raise RuntimeError("COSY threw an error")
+		if "******" in output:
+			print(output)
+			raise RuntimeError("COSY screwed up a number format")
 
-	return output
+		lines = output.split("\n")
+		i_resolution = lines.index("algebraic resolution:")
+		resolutions = []
+		for i in range(i_resolution + 1, len(lines), 3):
+			if lines[i].endswith("MeV ->"):
+				resolutions.append(float(lines[i + 1].strip()))
+		outputs: dict[str, Any] = {"resolutions": resolutions}
+		i_multienergy_quantities = lines.index("beam centroid:")
+		for i in range(i_multienergy_quantities):
+			if lines[i].endswith(":"):
+				key = lines[i][:-1].strip()
+				value = float(lines[i + 1])
+				outputs[key] = value
+			elif ":=" in lines[i]:
+				key, value = lines[i].replace(";", "").split(":=")
+				outputs[key.strip()] = float(value.strip())
+
+		if cache is not None:
+			cache[run_key] = outputs
+
+	else:
+		outputs = cache[run_key]
+
+	return outputs
 
 
 def set_hyperparameters(content: str, **hyperparameters) -> str:
@@ -232,6 +264,16 @@ def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 				unit=hyperparameters["unit"],
 			)
 	raise ValueError(f"You seem to have tried to specify a {variable_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
+
+
+def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]]) -> list[optimize.NonlinearConstraint]:
+	constraints = []
+	for constraint in script.constraints:
+		def constraint_function(x, name=constraint.name):
+			return run_cosy(script, x, output_mode="none", cache=cache)[name]
+		constraints.append(optimize.NonlinearConstraint(
+			constraint_function, constraint.min, constraint.max))
+	return constraints
 
 
 def generate_initial_sample(
@@ -310,5 +352,5 @@ if __name__ == '__main__':
 	optimize_design(
 		"mergs_electron_optics",
 		.03, .50, .03, 0.1,
-		order=6, method="Nelder-Mead",
+		order=6, method="SLSQP",
 	)

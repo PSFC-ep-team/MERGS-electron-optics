@@ -465,6 +465,17 @@ PROCEDURE main;
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
 
+	IF output_mode=1;
+		out := 6;
+	ELSEIF output_mode#1;
+		out_filename := 'out.txt';
+		OPENF 0 out_filename 'REPLACE';
+		out := 0;
+	ENDIF;
+
+	{ create the output file, clearing any previous output, in case COSY crashes without an error message }
+	WRITE out 'hi.';
+
 	{ ---- input parameters ---- }
 
 	config_spectrometer;
@@ -477,12 +488,12 @@ PROCEDURE main;
 	drift_pre_aperture := 0.50;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.043545284528735274; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_quad_field := 0.03; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
 	p_dipole_field := 0.29222176932852706; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
-	p_m5_length := 0.11334094433980768; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_m5_length := 0.11334094433980768; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.20684474997885838; {{PARAM |min=0 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.20684474997885838; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.13;
 	p_drift_pre_bend := 0.26600302583988855; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
@@ -490,7 +501,7 @@ PROCEDURE main;
 	p_shape_in_2 := 4.9874613358243645; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
 	p_shape_in_3 := 8.102106156592981;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 	p_shape_out_1 := 0.4066716406331561; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -3.44; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
+	p_shape_out_2 := -3.4; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
 	p_shape_out_3 := 0.6906049634755604;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
@@ -522,12 +533,10 @@ PROCEDURE main;
 		objective := focal_plane_tilt;
 	ENDFIT 1e-10 100 optimizer objective;
 
-	IF output_mode=1;
-		out := 6;
-	ELSEIF output_mode#1;
-		out_filename := 'out.txt';
-		OPENF 0 out_filename 'REPLACE';
-		out := 0;
+	IF p_shape_out_2<-10;
+		p_shape_out_2 := -10;
+	ELSEIF p_shape_out_2>10;
+		p_shape_out_2 := 10;
 	ENDIF;
 
 	WRITE out 'foil_width := '&SF(foil_width, '(G13.7)')&';';
@@ -598,7 +607,7 @@ PROCEDURE main;
 	WRITE out 'magnification:' ME(1,1) 'x';
 	WRITE out 'focus:' ME(1,2)*100 'cm/rad';
 	WRITE out 'dispersion:' ME(1,6)/central_energy*100 'cm/MeV';
-	WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg';
+	WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg'; {{CONSTRAINT |min=-5 |max=5 |bias=0 |unit=deg}}
 	WRITE out 'focal plane bend:' focal_plane_bend '/m';
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=0 |max=100 |bias=0 |unit=cm}}
 	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=50 |bias=-1/2.0 |unit=cm}}
