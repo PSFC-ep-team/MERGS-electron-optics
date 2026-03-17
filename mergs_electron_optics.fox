@@ -626,9 +626,8 @@ PROCEDURE main;
 
 	WRITE out '';
 
+	WRITE out 'transfer map matrix -----------------------------------------------------------';
 	WRITE_MAP out;
-
-	WRITE out '';
 
 	IF output_mode#1;
 		CLOSEF 0;

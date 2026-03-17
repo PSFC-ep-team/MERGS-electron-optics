@@ -16,18 +16,20 @@ from numexpr import evaluate
 from scipy import optimize, stats
 
 
-def optimize_design(
-		name: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order: int, method: str):
+def optimize_electron_optics(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		frugality: float, order=6, method="SLSQP", final=True, save_name=None) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
-	:param name: a name for the final optimized COSY file
 	:param foil_diameter: the foil size in m
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
 	:param method: one of "Nelder-Mead", or "differential evolution"
+	:param final: whether to try extra hard to find the optimum
+	:param save_name: a filename for the final solution
+	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
 	with open(f'mergs_electron_optics.fox', 'r') as file:
 		script_content = file.read()
@@ -45,8 +47,9 @@ def optimize_design(
 	bounds = [(parameter.min, parameter.max) for parameter in parameters]
 	n_dims = len(initial_guess)
 
-	# check to make sure the initial guess is valid
-	objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
+	if method == "Nelder-Mead" or method == "differential evolution":
+		# check to make sure the initial guess is valid
+		objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
 
 	# run the selected optimization algorithm
 	if method == "SLSQP":
@@ -54,10 +57,12 @@ def optimize_design(
 			objective_function,
 			initial_guess,
 			args=(script, frugality, "ignore", cache),
+			jac="3-point",
 			bounds=bounds,
 			constraints=reformat_constraints(script, cache),
 			method='SLSQP',
 			options=dict(
+				ftol=1e-6 if final else 1e-3,
 				disp=True,
 			)
 		)
@@ -94,9 +99,18 @@ def optimize_design(
 		if re.search(r"_proc[0-9]+", filename):
 			os.remove(f"generated/{filename}")
 
+	# extract the performance metrics
+	resolution = estimate_resolution(script, result.x, cache)
+	cost = estimate_cost(script, result.x, "inf", cache)
+
 	# show and save the final result
-	print(result)
-	run_cosy(script, result.x, output_mode="GUI", cache=None, run_id=f"{name}_optimal")
+	if save_name is not None:
+		print(result)
+		results = run_cosy(script, result.x, output_mode="file", cache=None, run_id=save_name)
+		with open(f"generated/{save_name}_map.txt", "w") as file:
+			file.write(results["map"])
+
+	return result.x, resolution, cost
 
 
 def objective_function(
@@ -114,6 +128,44 @@ def objective_function(
 	                    - if 'error', any constraint that's out of bounds will raise an error.
 	:param cache: the saved COSY runs
 	"""
+	mean_resolution = estimate_resolution(script, parameter_vector, cache)
+	penalty = estimate_cost(script, parameter_vector, constraints, cache)
+	return frugality*penalty + 2*log(mean_resolution)
+
+
+def estimate_resolution(
+		script: Script, parameter_vector: List[float],
+		cache: dict[tuple, dict[str, Any]]) -> float:
+	"""
+	run COSY, read its output, and calculate the system's mean energy resolution.
+	:param parameter_vector: the values of the parameters at which to evaluate it
+	:param script: the COSY script to run with those parameters
+	:param cache: the saved COSY runs
+	"""
+	outputs = run_cosy(
+		script,
+		parameter_vector,
+		output_mode="none",
+		cache=cache)
+
+	resolutions = outputs["resolutions"]
+	return sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
+
+
+def estimate_cost(
+		script: Script, parameter_vector: List[float],
+		constraints: Literal['ignore', 'inf', 'error'],
+		cache: dict[tuple, dict[str, Any]]) -> float:
+	"""
+	run COSY, read its output, and calculate a number that quantifies the system's cost.
+	:param parameter_vector: the values of the parameters at which to evaluate it
+	:param script: the COSY script to run with those parameters
+	:param constraints: how to deal with constraints.
+	                    - if 'ignore', constraint biases will be added to the cost but mins and maxen will be ignored.
+	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
+	                    - if 'error', any constraint that's out of bounds will raise an error.
+	:param cache: the saved COSY runs
+	"""
 	if constraints not in ['ignore', 'inf', 'error']:
 		raise ValueError(f"Unrecognized constraint violation option: '{constraints}'.")
 
@@ -122,8 +174,6 @@ def objective_function(
 		parameter_vector,
 		output_mode="none",
 		cache=cache)
-	resolutions = outputs["resolutions"]
-	mean_resolution = sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
 
 	penalty = 0
 	for parameter, value in zip(script.parameters, parameter_vector):
@@ -136,12 +186,7 @@ def objective_function(
 			elif constraints == 'inf':
 				penalty = inf
 		penalty -= constraint.bias*abs(value)
-
-	cost = frugality*penalty + 2*log(mean_resolution)
-
-	print("[" + ", ".join(f"{value:g}" for value in parameter_vector) + "]")
-	print(f"\t-> {frugality}*{penalty:.6g} + 2*log({mean_resolution:5.2f} keV) = {cost:.6g}")
-	return cost
+	return penalty
 
 
 def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, run_id: Optional[str] = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
@@ -193,13 +238,22 @@ def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, ru
 			print(output)
 			raise RuntimeError("COSY screwed up a number format")
 
+		# extract the resolution at each energy
 		lines = output.split("\n")
 		i_resolution = lines.index("algebraic resolution:")
 		resolutions = []
 		for i in range(i_resolution + 1, len(lines), 3):
 			if lines[i].endswith("MeV ->"):
 				resolutions.append(float(lines[i + 1].strip()))
-		outputs: dict[str, Any] = {"resolutions": resolutions}
+
+		# extract the map matrix
+		i_map_start = lines.index("transfer map matrix -----------------------------------------------------------")
+		i_map_end = lines.index(" ------------------------------------------------------------------------------")
+		map_matrix = "\n".join(lines[i_map_start + 1:i_map_end])
+		map_matrix = re.sub(r"([0-9])-", r"\1 -", map_matrix)  # fix it when COSY forgets a space
+
+		outputs: dict[str, Any] = {"resolutions": resolutions, "map": map_matrix}
+		# extract all other outputs
 		i_multienergy_quantities = lines.index("beam centroid:")
 		for i in range(i_multienergy_quantities):
 			if lines[i].endswith(":"):
@@ -260,7 +314,7 @@ def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 				default=float(match["value"]) if "value" in match.groupdict() else None,
 				min=float(hyperparameters["min"]),
 				max=float(hyperparameters["max"]),
-				bias=evaluate(hyperparameters["bias"]),
+				bias=float(evaluate(hyperparameters["bias"])),
 				unit=hyperparameters["unit"],
 			)
 	raise ValueError(f"You seem to have tried to specify a {variable_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
@@ -349,8 +403,8 @@ class Parameter:
 
 
 if __name__ == '__main__':
-	optimize_design(
-		"mergs_electron_optics",
+	optimize_electron_optics(
 		.03, .50, .03, 0.1,
 		order=6, method="SLSQP",
+		save_name="mergs_electron_optics",
 	)
