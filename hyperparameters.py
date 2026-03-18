@@ -154,7 +154,7 @@ def optimize_foil_thickness(
 	# first use a quick MC to calculate the geometric efficiency
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
-		16.7, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
+		16.7, num_samples=50_000, executor=executor, max_workers=8 if executor else 1)
 	nuclear_efficiency = 2.4e-5/2/(17.6*1.6e-19)  # photons/MJ
 	collimator_efficiency = 1.5*7e-10*(foil_diameter/.03)**2
 	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
@@ -206,7 +206,7 @@ def calculate_resolution(
 		),
 	)
 	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-		incident_energy=16.7, num_recoil_particles=20_000, executor=executor, max_workers=8 if executor else 1)
+		incident_energy=16.7, num_recoil_particles=10_000, executor=executor, max_workers=8 if executor else 1)
 	return resolution
 
 
