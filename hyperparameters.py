@@ -3,6 +3,7 @@ code for scanning hyperparameters to find the set of all good designs
 """
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
+from typing import Optional
 
 from MPR_Tools.analysis.performance import PerformanceAnalyzer
 from MPR_Tools.core.conversion_foil import ConversionFoil
@@ -10,7 +11,7 @@ from MPR_Tools.core.spectrometer import MPRSpectrometer
 from numpy import log1p, inf
 from scipy import optimize
 
-from electron_optics import optimize_electron_optics
+from electron_optics import optimize_electron_optics, load_script, run_cosy
 
 
 def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
@@ -22,7 +23,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:param target_efficiency: the desired number of upper DT-γ counts per MJ
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
-	with ProcessPoolExecutor(max_workers=4) as executor:
+	with ProcessPoolExecutor(max_workers=8) as executor:
 		# calculate the optimal hyperparameters
 		solution = optimize.minimize(
 			lambda hyperparameters: optimize_parameters_and_frugality(
@@ -55,7 +56,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 def optimize_parameters_and_frugality(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		target_resolution: float, target_efficiency: float,
-		executor: Executor, final=False, save_name: str = None) -> tuple[float, list[float], float, float]:
+		executor: Optional[Executor], final=False, save_name: str = None) -> tuple[float, Optional[list[float]], float, float]:
 	"""
 	for a given foil and aperture dimensions, optimize the magnet system and foil thickness to achieve the given resolution and efficiency for the lowest cost
 	:param foil_diameter: the foil diameter in m
@@ -68,25 +69,33 @@ def optimize_parameters_and_frugality(
 	:param save_name: a filename at which to save the optimal magnet parameters
 	:return: the optimal foil thickness (μm), optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
 	"""
-	cache = {}
+	cache: dict[float, tuple[list[float], float, float]] = {}
 
-	best_possible_resolution = optimize_parameters(
-		foil_diameter, aperture_distance, aperture_diameter, 0.01,
-		target_efficiency, cache, executor)[2]
+	foil_thickness = optimize_foil_thickness(
+		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor)
+	best_possible_resolution = calculate_foil_resolution(foil_thickness)
+
 	if best_possible_resolution > target_resolution:
 		print(f"It is not possible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
-		return cache[0.01][0], cache[0.01][1], target_resolution, inf
+		return foil_thickness, None, target_resolution, inf
+	best_practical_resolution = optimize_parameters(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 0.01,
+		cache, executor)[2]
+	if best_practical_resolution > target_resolution:
+		print(f"It is infeasible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
+		return foil_thickness, None, target_resolution, inf
 	cheapest_resolution = optimize_parameters(
-		foil_diameter, aperture_distance, aperture_diameter, 100,
-		target_efficiency, cache, executor)[2]
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 100.,
+		cache, executor)[2]
 	if cheapest_resolution <= target_resolution:
 		print(f"The hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] automatically achieve efficiency {target_efficiency:.2g} and resolution {cheapest_resolution:.0f} keV.")
-		return cache[100.]
+		parameters, resolution, cost = cache[100.]
+		return foil_thickness, parameters, resolution, cost
 
 	optimum = optimize.root_scalar(
 		lambda frugality: optimize_parameters(
-			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			target_efficiency, cache, executor, final, save_name)[2] - target_resolution,
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
+			cache, executor, final, save_name)[2] - target_resolution,
 		bracket=(0, 100),
 		rtol=0.05,  # note the large tolerance; we don't need to get the frugality _that_ precisely
 	)
@@ -97,34 +106,90 @@ def optimize_parameters_and_frugality(
 
 
 def optimize_parameters(
-		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, target_efficiency: float,
-		cache: dict[float, tuple[float, list[float], float, float]], executor: Executor,
-		final=False, save_name: str = None) -> tuple[float, list[float], float, float]:
+		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float,
+		frugality: float, cache: dict[float, tuple[list[float], float, float]], executor: Optional[Executor],
+		final=False, save_name: str = None) -> tuple[list[float], float, float]:
 	"""
-	for a given foil/aperture dimensions and frugality, optimize the magnet system and foil thickness to achieve the given efficiency with the best resolution
+	for a given foil/aperture dimensions and frugality, optimize the magnet system to achieve the given efficiency with the best resolution
 	:param foil_diameter: the foil diameter in m
+	:param foil_thickness: the foil thickness in μm
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
 	:param frugality: how much to wey cost when evaluating performance
-	:param target_efficiency: the desired number of upper DT-γ counts per MJ
 	:param cache: the cache of previus optimizations with these hyperparameters and target efficiency
 	:param executor: the process pool to use for the multiprocessed bits
 	:param final: whether to try extra hard to find the optimum
 	:param save_name: a filename at which to save the optimal magnet parameters
-	:return: the optimal foil thickness (μm), optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
+	:return: the optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
 	"""
 	if frugality in cache:
 		return cache[frugality]
 
-	if save_name is None:
-		save_name = "temporary"
-
-	foil_thickness = optimize_foil_thickness(
-		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor)
 	parameters, optical_resolution, cost = optimize_electron_optics(
 		foil_diameter, aperture_distance, aperture_diameter, frugality,
 		final=final, save_name=save_name)
+	total_resolution = calculate_resolution(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, parameters,
+		executor)
+
+	print(f"\t{total_resolution:.0f} keV, {cost:.2f} $")
+
+	cache[frugality] = foil_thickness, parameters, total_resolution, cost
+	return cache[frugality]
+
+
+def optimize_foil_thickness(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		target_efficiency: float,
+		executor: Optional[Executor]) -> float:
+	"""
+	for a given foil radius and material, calculate the thickness that achieves the given efficiency
+	:param foil_diameter: the foil diameter in m
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture diameter in m
+	:param target_efficiency: the desired number of upper DT-γ counts per MJ
+	:param executor: the process pool to use for the multiprocessed bits
+	:return: the optimal foil thickness in μm
+	"""
+	# first use a quick MC to calculate the geometric efficiency
+	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
+	_, geometric_efficiency, _ = foil.calculate_efficiency(
+		16.7, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
+	nuclear_efficiency = 2.4e-5/2/(17.6*1.6e-19)  # photons/MJ
+	collimator_efficiency = 1.5*7e-10*(foil_diameter/.03)**2
+	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
+	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
+	total_cross_section = 0
+	scattering_cross_section = 0
+	for interaction in foil.interactions:
+		total_cross_section += interaction.get_cross_section(16.7)
+		if interaction.generates_recoil_particles:
+			scattering_cross_section += interaction.get_cross_section(16.7)
+	return -log1p(-target_scattering_efficiency/scattering_cross_section*total_cross_section)/total_cross_section/1e-6
+
+
+def calculate_resolution(
+		foil_diameter: float, foil_thickness: float,
+		aperture_distance: float, aperture_diameter: float,
+		parameters: Optional[list[float]],
+		executor: Optional[Executor]) -> float:
+	"""
+	evaluate a complete design to determine its total energy resolution
+	:param foil_diameter: the foil diameter in m
+	:param foil_thickness: the foil thickness in μm
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture diameter in m
+	:param parameters: the electron optics parameters
+	:param executor: the process pool to use for the multiprocessed bits
+	:return: resolution at 16.7 MeV (keV)
+	"""
+	# use COSY to get the transfer map matrix
+	cosy_script = load_script(foil_diameter, aperture_distance, aperture_diameter, order=6)
+	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
+	with open("generated/temporary_map.txt", "w") as file:
+		file.write(cosy_outputs["map"])
+
+	# use MPR_Tools to calculate the resolution
 	monte_carlo = PerformanceAnalyzer(
 		MPRSpectrometer(
 			conversion_foil=ConversionFoil(
@@ -140,43 +205,15 @@ def optimize_parameters(
 			run_directory="generated/monte-carlo-dump/",
 		),
 	)
-	_, _, total_resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-		incident_energy=16.7, num_recoil_particles=100_000, executor=executor, max_workers=4)
-
-	print(f"\t{total_resolution:.0f} keV, {cost:.2f} $")
-
-	cache[frugality] = foil_thickness, parameters, total_resolution, cost
-	return cache[frugality]
+	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+		incident_energy=16.7, num_recoil_particles=20_000, executor=executor, max_workers=8 if executor else 1)
+	return resolution
 
 
-def optimize_foil_thickness(
-		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		target_efficiency: float,
-		executor: Executor) -> float:
-	"""
-	for a given foil radius and material, calculate the thickness that achieves the given efficiency
-	:param foil_diameter: the foil diameter in m
-	:param aperture_distance: the distance from the foil to the aperture in m
-	:param aperture_diameter: the aperture diameter in m
-	:param target_efficiency: the desired number of upper DT-γ counts per MJ
-	:param executor: the process pool to use for the multiprocessed bits
-	:return: the optimal foil thickness in μm
-	"""
-	# first use a quick MC to calculate the geometric efficiency
-	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
-	_, geometric_efficiency, _ = foil.calculate_efficiency(
-		16.7, num_samples=100_000, executor=executor, max_workers=4)
-	nuclear_efficiency = 2.4e-5/2/(17.6*1.6e-19)  # photons/MJ
-	collimator_efficiency = 7e-10*(foil_diameter/.03)**2
-	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
-	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
-	total_cross_section = 0
-	scattering_cross_section = 0
-	for interaction in foil.interactions:
-		total_cross_section += interaction.get_cross_section(16.7)
-		if interaction.generates_recoil_particles:
-			scattering_cross_section += interaction.get_cross_section(16.7)
-	return -log1p(-target_scattering_efficiency/scattering_cross_section*total_cross_section)/total_cross_section/1e-6
+def calculate_foil_resolution(foil_thickness: float) -> float:
+	foil = ConversionFoil(0 , foil_thickness, 0, 0)
+	electron_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
+	return (electron_energy - foil.calculate_stopping_power_loss(electron_energy, foil_thickness))*1000
 
 
 if __name__ == "__main__":

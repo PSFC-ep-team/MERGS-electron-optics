@@ -31,20 +31,12 @@ def optimize_electron_optics(
 	:param save_name: a filename for the final solution
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
-	with open(f'mergs_electron_optics.fox', 'r') as file:
-		script_content = file.read()
-	script_content = set_hyperparameters(
-		script_content,
-		foil_width=foil_diameter, foil_height=foil_diameter,
-		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
-		drift_pre_aperture=aperture_distance, order=order)
-	parameters, constraints = infer_parameter_names(script_content)
-	script = Script(script_content, parameters, constraints)
+	script = load_script(foil_diameter, aperture_distance, aperture_diameter, order)
 
 	cache = {}
 
-	initial_guess = [parameter.default for parameter in parameters]
-	bounds = [(parameter.min, parameter.max) for parameter in parameters]
+	initial_guess = [parameter.default for parameter in script.parameters]
+	bounds = [(parameter.min, parameter.max) for parameter in script.parameters]
 	n_dims = len(initial_guess)
 
 	if method == "Nelder-Mead" or method == "differential evolution":
@@ -189,8 +181,10 @@ def estimate_cost(
 	return penalty
 
 
-def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, run_id: Optional[str] = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
+def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mode: str, run_id: Optional[str] = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
+	if parameter_vector is None:
+		parameter_vector = [parameter.default for parameter in script.parameters]
 	assert len(parameter_vector) == len(script.parameters)
 
 	if run_id is None:
@@ -271,6 +265,19 @@ def run_cosy(script: Script, parameter_vector: List[float], output_mode: str, ru
 		outputs = cache[run_key]
 
 	return outputs
+
+
+def load_script(foil_diameter: float, aperture_distance: float, aperture_diameter: float, order: int) -> Script:
+	""" load the COSY script from disc into a Script object """
+	with open(f'mergs_electron_optics.fox', 'r') as file:
+		script_content = file.read()
+	script_content = set_hyperparameters(
+		script_content,
+		foil_width=foil_diameter, foil_height=foil_diameter,
+		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
+		drift_pre_aperture=aperture_distance, order=order)
+	parameters, constraints = infer_parameter_names(script_content)
+	return Script(script_content, parameters, constraints)
 
 
 def set_hyperparameters(content: str, **hyperparameters) -> str:
