@@ -1,6 +1,7 @@
 """
 code for scanning hyperparameters to find the set of all good designs
 """
+import multiprocessing
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional
@@ -183,10 +184,16 @@ def calculate_resolution(
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: resolution at 16.7 MeV (keV)
 	"""
+	# first make sure the foil is a reasonable thickness
+	foil_broadening = calculate_foil_resolution(foil_thickness)
+	if foil_broadening > 5000:  # if it's really really thick, skip this calculation as it might not work properly
+		return 5000
+
 	# use COSY to get the transfer map matrix
 	cosy_script = load_script(foil_diameter, aperture_distance, aperture_diameter, order=6)
 	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
-	with open("generated/temporary_map.txt", "w") as file:
+	map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
+	with open(map_filename, "w") as file:
 		file.write(cosy_outputs["map"])
 
 	# use MPR_Tools to calculate the resolution
@@ -199,7 +206,7 @@ def calculate_resolution(
 				aperture_radius=aperture_diameter/2,
 				foil_material="B",
 			),
-			transfer_map_path="generated/temporary_map.txt",
+			transfer_map_path=map_filename,
 			reference_energy=13.2, min_energy=9.24, max_energy=17.16,
 			hodoscope=None,
 			run_directory="generated/monte-carlo-dump/",
@@ -207,13 +214,14 @@ def calculate_resolution(
 	)
 	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
 		incident_energy=16.7, num_recoil_particles=10_000, executor=executor, max_workers=8 if executor else 1)
-	return resolution
+	return min(5000, resolution)  # don't report resolutions above 5 MeV because it gets hard to define then
 
 
 def calculate_foil_resolution(foil_thickness: float) -> float:
-	foil = ConversionFoil(0 , foil_thickness, 0, 0)
-	electron_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
-	return (electron_energy - foil.calculate_stopping_power_loss(electron_energy, foil_thickness))*1000
+	foil = ConversionFoil(0 , foil_thickness, 0, 0, foil_material="B")
+	initial_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
+	min_exit_energy = foil.calculate_stopping_power_loss(initial_energy, foil_thickness*1e-6)
+	return (initial_energy - min_exit_energy)*1000
 
 
 if __name__ == "__main__":

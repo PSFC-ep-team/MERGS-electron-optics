@@ -16,14 +16,18 @@ def plot_pareto_front(*filenames: str):
 	fronts = []
 
 	for filename in filenames:
-		if os.path.isfile(f"{filename}_pareto_front.txt"):
+		if os.path.isfile(f"generated/{filename}_pareto_front.txt"):
 			resolutions, efficiencies = np.loadtxt(f"{filename}_pareto_front.txt", unpack=True)
 		else:
-			resolutions, efficiencies = find_pareto_front(filename, None)
+			resolutions, efficiencies = find_pareto_front(filename)
 			np.savetxt(
 				f"generated/{filename}_pareto_front.txt",
 				stack([resolutions, efficiencies], axis=1))
 		fronts.append((resolutions, efficiencies))
+
+	plt.rcParams["font.size"] = 12
+	plt.rcParams['xtick.labelsize'] = 12
+	plt.rcParams['ytick.labelsize'] = 12
 
 	plt.figure(figsize=(4.5, 4.0))
 	plt.grid()
@@ -39,7 +43,7 @@ def plot_pareto_front(*filenames: str):
 	plt.show()
 
 
-def find_pareto_front(filename: str, executor: Optional[Executor]) -> tuple[Sequence[float], Sequence[float]]:
+def find_pareto_front(filename: str) -> tuple[Sequence[float], Sequence[float]]:
 	with open(f"{filename}.fox") as file:
 		script_content = file.read()
 	max_foil_diameter = float(re.search(r"foil_width := ([0-9.]+)", script_content).group(1))
@@ -59,7 +63,7 @@ def find_pareto_front(filename: str, executor: Optional[Executor]) -> tuple[Sequ
 
 	resolutions = zeros_like(efficiencies)
 	for i, result in enumerate(results):
-		resolutions[i] = result.get()
+		resolutions[i] = result.result()
 
 	return resolutions, efficiencies
 
@@ -67,7 +71,6 @@ def find_pareto_front(filename: str, executor: Optional[Executor]) -> tuple[Sequ
 def find_suitable_hyperparameters(
 		efficiency: float, max_foil_diameter: float,
 		min_aperture_distance: float, max_aperture_diameter: float):
-	print(efficiency)
 
 	def objective(hyperparameters: float) -> float:
 		foil_diameter, aperture_distance, aperture_diameter = hyperparameters
@@ -76,7 +79,7 @@ def find_suitable_hyperparameters(
 		resolution = calculate_resolution(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 			parameters=None, executor=None)
-		print(f"{hyperparameters} -> {resolution:.2f}")
+		print(f"{efficiency:.3g}: {hyperparameters} -> {resolution:.2f}")
 		return resolution
 
 	solution = optimize.minimize(
@@ -100,6 +103,7 @@ def find_suitable_hyperparameters(
 		)
 	)
 	print(solution)
+	return solution.fun
 
 
 if __name__ == "__main__":
