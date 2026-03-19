@@ -8,9 +8,9 @@ import os
 import re
 import subprocess
 from shutil import copyfile
-from typing import Tuple, List, Union, Any, Optional, Literal
+from typing import Tuple, List, Union, Any, Optional, Literal, Callable, Sequence
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -26,7 +26,7 @@ def optimize_electron_optics(
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
-	:param method: one of "Nelder-Mead", or "differential evolution"
+	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", or "differential evolution"
 	:param final: whether to try extra hard to find the optimum
 	:param save_name: a filename for the final solution
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
@@ -39,7 +39,7 @@ def optimize_electron_optics(
 	bounds = [(parameter.min, parameter.max) for parameter in script.parameters]
 	n_dims = len(initial_guess)
 
-	if method == "Nelder-Mead" or method == "differential evolution":
+	if method != "SLSQP":
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
 
@@ -55,9 +55,25 @@ def optimize_electron_optics(
 			method='SLSQP',
 			options=dict(
 				ftol=1e-6 if final else 1e-3,
-				disp=True,
 			)
 		)
+		solution = result.x
+	elif method == "COBYQA":
+		scale = array([(upper - lower)/2 for lower, upper in bounds])
+		shift = array([(lower + upper)/2 for lower, upper in bounds])
+		result = optimize.minimize(
+			rescale_function(objective_function, scale, shift),  # for COBYQA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
+			rescale_vector(initial_guess, scale, shift),
+			args=(script, frugality, "ignore", cache),
+			bounds=rescale_bounds(bounds, scale, shift),
+			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
+			method='COBYQA',
+			options=dict(
+				initial_tr_radius=1e-1,
+				final_tr_radius=1e-6 if final else 1e-3,
+			)
+		)
+		solution = result.x*scale + shift
 	elif method == "Nelder-Mead":
 		result = optimize.minimize(
 			objective_function,
@@ -68,9 +84,9 @@ def optimize_electron_optics(
 			options=dict(
 				initial_simplex=generate_initial_sample(initial_guess, bounds, n_dims + 1),
 				maxiter=10_000,
-				disp=True,
 			)
 		)
+		solution = result.x
 	elif method == "differential evolution":
 		result = optimize.differential_evolution(
 			objective_function,
@@ -78,13 +94,20 @@ def optimize_electron_optics(
 			args=(script, frugality, "inf", cache),
 			popsize=3*n_dims,
 			init=generate_initial_sample(initial_guess, bounds, 3*n_dims),
-			disp=True,
 			polish=False,
 			workers=4,
 			updating="deferred",
 		)
+		solution = result.x
 	else:
 		raise ValueError(f"I don't support the optimization method '{method}'.")
+
+	# show and save the final result
+	if save_name is not None:
+		print(result)
+		results = run_cosy(script, solution, output_mode="file", cache=None, run_id=save_name)
+		with open(f"generated/{save_name}_map.txt", "w") as file:
+			file.write(results["map"])
 
 	# clean up the temporary files
 	for filename in os.listdir("generated"):
@@ -92,17 +115,10 @@ def optimize_electron_optics(
 			os.remove(f"generated/{filename}")
 
 	# extract the performance metrics
-	resolution = estimate_resolution(script, result.x, cache)
-	cost = estimate_cost(script, result.x, "inf", cache)
+	resolution = estimate_resolution(script, solution, cache)
+	cost = estimate_cost(script, solution, "inf", cache)
 
-	# show and save the final result
-	if save_name is not None:
-		print(result)
-		results = run_cosy(script, result.x, output_mode="file", cache=None, run_id=save_name)
-		with open(f"generated/{save_name}_map.txt", "w") as file:
-			file.write(results["map"])
-
-	return result.x, resolution, cost
+	return solution, resolution, cost
 
 
 def objective_function(
@@ -390,6 +406,37 @@ def generate_initial_sample(
 		new_vertex = sample_lower_bounds + sample*(sample_upper_bounds - sample_lower_bounds)
 		vertices.append(new_vertex)
 	return array(vertices)
+
+
+def rescale_function(function: Callable, scale: ndarray, shift: ndarray) -> Callable:
+	""" convert a function that accepts real vectors to a function that accepts normalized vectors """
+	return lambda x, *args, **kwargs: function(x*scale + shift, *args, **kwargs)
+
+
+def rescale_vector(x: Sequence[float], scale: ndarray, shift: ndarray) -> Sequence[float]:
+	""" convert a vector in real space to a normalized vector """
+	return (x - shift)/scale
+
+
+def rescale_bounds(bounds: list[tuple[float, float]], scale: ndarray, shift: ndarray) -> list[tuple[float, float]]:
+	""" convert bounds in real space to bounds in normalized space """
+	result = []
+	for i, (lower, upper) in enumerate(bounds):
+		result.append(((lower - shift[i])/scale[i], (upper - shift[i])/scale[i]))
+	return result
+
+
+def rescale_constraints(constraints: list[optimize.NonlinearConstraint], scale: ndarray, shift: ndarray) -> list[optimize.NonlinearConstraint]:
+	""" convert nonlinear constraints based on real space to nonlinear constraints based on normalized space """
+	return [rescale_constraint(constraint, scale, shift) for constraint in constraints]
+
+
+def rescale_constraint(constraint: optimize.NonlinearConstraint, scale: ndarray, shift: ndarray) -> optimize.NonlinearConstraint:
+	""" convert nonlinear constraints based on real space to nonlinear constraints based on normalized space """
+	return optimize.NonlinearConstraint(
+		lambda x: constraint.fun(x*scale + shift),
+		constraint.lb, constraint.ub,
+		constraint.jac, constraint.hess, constraint.keep_feasible)
 
 
 class Script:
