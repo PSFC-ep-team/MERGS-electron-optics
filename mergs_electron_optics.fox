@@ -36,8 +36,8 @@ VARIABLE dipole_min_bend_radius 1;
 VARIABLE dipole_max_bend_radius 1;
 VARIABLE dipole_gap_height 1;
 VARIABLE dipole_side_length 1;
-VARIABLE dipole_front_side_length 1;
-VARIABLE dipole_back_side_length 1;
+VARIABLE dipole_front_secancy 1;
+VARIABLE dipole_back_secancy 1;
 
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
@@ -283,6 +283,11 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE dipole_front_side_displacement 1;
 	VARIABLE dipole_back_side_displacement 1;
 	VARIABLE min_x 1;
+	VARIABLE extended_min_x 1;
+	VARIABLE i_x 1;
+	VARIABLE x 1;
+	VARIABLE z_arc 1;
+	VARIABLE z_face 1;
 
 	transform_rays;
 
@@ -316,14 +321,27 @@ PROCEDURE evaluate_spectrometer;
 
 	system_length := p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
 
-	{ calculate the dimensions of the short side of the dipole's GFR to make sure it's not degenerate }
+	{ calculate by how big a margin the face intersects with the inner arc, to make sure the magnet shape isn't degenerate }
 	dipole_min_radius := dipole_min_bend_radius-1.5*dipole_gap_height; { extend it 1.5*gap_height to give the beam region some buffer }
 	min_x := dipole_min_radius-dipole_bend_radius;
+	extended_min_x := MAX(dipole_min_radius*cos(dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
+	dipole_front_secancy := -100;
+	dipole_back_secancy := -100;
+	LOOP i_x 0 6;
+		x := min_x + i_x/6*(extended_min_x - min_x);
+		z_arc := SQRT(dipole_min_radius^2 - (x + dipole_bend_radius)^2); {positive z points into the magnet}
+		{ check the front face }
+		z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3;
+		dipole_front_secancy := MAX(dipole_front_secancy, z_arc - z_face); {positive is good}
+		{ then check the back face }
+		z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3;
+		dipole_back_secancy := MAX(dipole_back_secancy, z_arc - z_face);  {positive is good}
+	ENDLOOP;
+
+	{ calculate the length of the inner side to make sure it's not negative }
 	dipole_central_side_length := dipole_min_radius*dipole_bend_angle*PI/180; {start with the arc length}
-	dipole_front_side_displacement := -p_shape_in_1*min_x-p_shape_in_2*min_x^2-p_shape_in_3*min_x^3; {calculate the difference in length due to entrance face shape}
-	dipole_back_side_displacement := -p_shape_out_1*min_x-p_shape_out_2*min_x^2-p_shape_out_3*min_x^3; {calculate the difference in length due to exit face shape}
-	dipole_front_side_length := dipole_central_side_length+dipole_front_side_displacement;
-	dipole_back_side_length := dipole_central_side_length+dipole_back_side_displacement;
+    dipole_front_side_displacement := -p_shape_in_1*min_x-p_shape_in_2*min_x^2-p_shape_in_3*min_x^3; {calculate the difference in length due to entrance face shape}
+    dipole_back_side_displacement := -p_shape_out_1*min_x-p_shape_out_2*min_x^2-p_shape_out_3*min_x^3; {calculate the difference in length due to exit face shape}
 	dipole_side_length := dipole_central_side_length+dipole_front_side_displacement+dipole_back_side_displacement;
 
  ENDPROCEDURE;
@@ -488,21 +506,22 @@ PROCEDURE main;
 	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.006679364427079735; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
+	{ set the electron-optic parameters }
+	p_m5_quad_field := 0.0067845432676948555; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.12187450840260047; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
-	p_m5_length := 0.17186266912368647; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.12155900768169678; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_length := 0.1721221547761307; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.6368867331694982; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.6389753180417704; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.20;
-	p_drift_pre_bend := 0.10769128356994881; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+	p_drift_pre_bend := 0.10782029281359036; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
-	p_shape_in_1 := 0.9981692256264604; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 7.255477041709584; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
-	p_shape_in_3 := 8.415487211703683;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
-	p_shape_out_1 := 0.2236200133732476; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_1 := 0.9969794889186046; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 7.302455799500992; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
+	p_shape_in_3 := 11.405134483755647;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_1 := 0.22108825337094135; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
 	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
-	p_shape_out_3 := 2.0347325191818304;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_3 := 2.0946638684626846;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
 
@@ -601,8 +620,8 @@ PROCEDURE main;
 
 	WRITE out 'quadripole beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
-	WRITE out 'dipole front arclength:' dipole_front_side_length; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
-	WRITE out 'dipole back arclength:' dipole_back_side_length; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole aspect ratio:' dipole_side_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'magnification:' ME(1,1) 'x';
 	WRITE out 'focus:' ME(1,2)*100 'cm/rad';

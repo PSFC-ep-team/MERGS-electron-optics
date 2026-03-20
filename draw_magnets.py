@@ -7,34 +7,34 @@ from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where
 
 FILE_TO_OPTIMIZE = "mergs_ion_optics"
 PARAMETER_STRING = """
-foil_width := 0.3000000E-01;
-foil_height := 0.3000000E-01;
-aperture_width := 0.4000000E-01;
-aperture_height := 0.4000000E-01;
-p_m5_quad_field := 0.6679364E-02;
-p_m5_hex_field :=  0.000000;
-p_dipole_field := 0.1218745;
-p_m5_radius := 0.4296567E-01;
-p_m5_length := 0.1718627;
-p_dipole_halfwidth := 0.2000000;
-p_dipole_length := 0.6368867;
-drift_pre_aperture := 0.3000000;
-p_drift_pre_bend := 0.1076913;
-p_drift_post_bend := 0.6668903;
-p_shape_in_1 := 0.9981692;
-p_shape_in_2 :=  7.255477;
-p_shape_in_3 :=  8.415487;
-p_shape_out_1 := 0.2236200;
-p_shape_out_2 := -1.624135;
-p_shape_out_3 :=  2.034733;
+foil_width := 0.300000000000000E-01;
+foil_height := 0.300000000000000E-01;
+aperture_width := 0.400000000000000E-01;
+aperture_height := 0.400000000000000E-01;
+p_m5_quad_field := 0.678454326769486E-02;
+p_m5_hex_field :=  0.00000000000000;
+p_dipole_field := 0.121559007681697;
+p_m5_radius := 0.430305386940327E-01;
+p_m5_length := 0.172122154776131;
+p_dipole_halfwidth := 0.200000000000000;
+p_dipole_length := 0.638975318041770;
+drift_pre_aperture := 0.300000000000000;
+p_drift_pre_bend := 0.107820292813590;
+p_drift_post_bend := 0.667145559897054;
+p_shape_in_1 := 0.996979488918605;
+p_shape_in_2 :=  7.30245579950099;
+p_shape_in_3 :=  11.4051344837556;
+p_shape_out_1 := 0.221088253370941;
+p_shape_out_2 := -1.62508186481824;
+p_shape_out_3 :=  2.09466386846268;
 
-dipole_bend_angle :=  97.24342;
-dipole_max_bend_radius := 0.6913629;
-dipole_central_bend_radius := 0.3752534;
-dipole_min_bend_radius := 0.2247509;
-dipole_gap_height := 0.1000000;
-hodoscope_right := 0.7586235;
-hodoscope_left := 0.2460412;
+dipole_bend_angle :=  97.3097505045912;
+dipole_max_bend_radius := 0.695558025833752;
+dipole_central_bend_radius := 0.376227343580493;
+dipole_min_bend_radius := 0.224644151726278;
+dipole_gap_height := 0.100004207535770;
+hodoscope_right := 0.758495686023389;
+hodoscope_left := 0.246238287807239;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -48,7 +48,7 @@ def draw_magnets():
 
 	paths = []
 	x = .05
-	y = .15
+	y = .20
 	θ = 0
 
 	draw_plane(
