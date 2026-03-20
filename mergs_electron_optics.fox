@@ -483,26 +483,26 @@ PROCEDURE main;
 	{ set upper bound for the foil dimensions }
 	foil_width := 0.03;
 	foil_height := 0.03;
-	aperture_width := 0.03;
-	aperture_height := 0.03;
-	drift_pre_aperture := 0.50;
+	aperture_width := 0.04;
+	aperture_height := 0.04;
+	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.03; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_quad_field := 0.006679364427079735; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.29222176932852706; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
-	p_m5_length := 0.11334094433980768; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.12187450840260047; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_length := 0.17186266912368647; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.20684474997885838; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
-	p_dipole_halfwidth := 0.13;
-	p_drift_pre_bend := 0.26600302583988855; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+	p_dipole_length := 0.6368867331694982; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
+	p_dipole_halfwidth := 0.20;
+	p_drift_pre_bend := 0.10769128356994881; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
-	p_shape_in_1 := 0.6654108658287559; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 4.9874613358243645; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
-	p_shape_in_3 := 8.102106156592981;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
-	p_shape_out_1 := 0.4066716406331561; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -3.4; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
-	p_shape_out_3 := 0.6906049634755604;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_in_1 := 0.9981692256264604; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 7.255477041709584; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
+	p_shape_in_3 := 8.415487211703683;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_1 := 0.2236200133732476; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
+	p_shape_out_3 := 2.0347325191818304;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
 

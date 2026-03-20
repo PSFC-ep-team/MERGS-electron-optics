@@ -458,7 +458,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .50, .03, 0.1,
+		.03, .30, .04, 0.01,
 		order=6, method="SLSQP",
 		save_name="mergs_electron_optics",
 	)
