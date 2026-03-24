@@ -9,6 +9,7 @@ from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MultipleLocator
 from numpy import geomspace, stack, zeros_like
 from numpy.ma.core import empty_like
 from scipy import optimize
@@ -45,7 +46,8 @@ def plot_pareto_fronts(*designs: str | tuple[float, float, float]):
 		plt.plot(resolutions, efficiencies, label=name)
 	if len(fronts) > 1:
 		plt.legend()
-	plt.xlim(0, 500)
+	plt.xlim(0, 1000)
+	plt.gca().xaxis.set_major_locator(MultipleLocator(250))
 	plt.yscale("log")
 	plt.ylim(0.1, 10)
 	plt.xlabel("Resolution (keV)")
@@ -129,4 +131,4 @@ def find_suitable_hyperparameters(
 
 if __name__ == "__main__":
 	plot_pareto_fronts("mergs_electron_optics")
-	# plot_pareto_fronts((.03, .50, .03), (.03, .25, .04))
+	# plot_pareto_fronts((.03, .40, .04), (.03, .30, .03))

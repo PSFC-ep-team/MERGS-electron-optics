@@ -40,9 +40,9 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			options=dict(
 				disp=True,
 				initial_simplex=[
-					[.70, .02],
-					[.50, .04],
-					[.30, .03],
+					[.40, .02],
+					[.50, .03],
+					[.30, .04],
 				],
 			),
 		)
@@ -173,7 +173,7 @@ def optimize_foil_thickness(
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
 		16.7, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
-	nuclear_efficiency = 2.4e-5/2/(17.6*1.6e-19)  # photons/MJ
+	nuclear_efficiency = 2.4e-5*.89/(17.6*1.6e-19)  # photons/MJ (only counting the 89% that fall above 11 MeV)
 	collimator_efficiency = 1.5*7e-10*(foil_diameter/.03)**2
 	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
 	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
