@@ -404,7 +404,7 @@ PROCEDURE config_spectrometer;
 
 	order := 6;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
-	central_energy := 13.2; {MeV}
+	central_energy := 13.5; {MeV}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 
 	num_energies := 3;

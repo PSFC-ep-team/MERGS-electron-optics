@@ -20,21 +20,21 @@ p_dipole_halfwidth := 0.200000000000000;
 p_dipole_length := 0.638975318041770;
 drift_pre_aperture := 0.300000000000000;
 p_drift_pre_bend := 0.107820292813590;
-p_drift_post_bend := 0.667145559897054;
+p_drift_post_bend := 0.791168119205845;
 p_shape_in_1 := 0.996979488918605;
 p_shape_in_2 :=  7.30245579950099;
 p_shape_in_3 :=  11.4051344837556;
 p_shape_out_1 := 0.221088253370941;
-p_shape_out_2 := -1.62508186481824;
+p_shape_out_2 := -1.43902941312980;
 p_shape_out_3 :=  2.09466386846268;
 
-dipole_bend_angle :=  97.3097505045912;
-dipole_max_bend_radius := 0.695558025833752;
-dipole_central_bend_radius := 0.376227343580493;
-dipole_min_bend_radius := 0.224644151726278;
-dipole_gap_height := 0.100004207535770;
-hodoscope_right := 0.758495686023389;
-hodoscope_left := 0.246238287807239;
+dipole_bend_angle :=  95.2261786573728;
+dipole_max_bend_radius := 0.703316642683299;
+dipole_central_bend_radius := 0.384459288958230;
+dipole_min_bend_radius := 0.224464937362926;
+dipole_gap_height := 0.103552034578229;
+hodoscope_right := 0.825033200335336;
+hodoscope_left := 0.284103224651263;
 """
 CENTRAL_ENERGY = 13.5
 
