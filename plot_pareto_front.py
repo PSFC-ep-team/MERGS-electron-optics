@@ -48,8 +48,9 @@ def plot_pareto_fronts(*designs: str | tuple[float, float, float]):
 	plt.xlim(0, 500)
 	plt.yscale("log")
 	plt.ylim(0.1, 10)
-	plt.xlabel("Resolution")
+	plt.xlabel("Resolution (keV)")
 	plt.ylabel("Efficiency (counts/MJ)")
+	plt.title("Performance for 16.7 MeV photons")
 	plt.tight_layout()
 	plt.savefig("pareto.pdf")
 	plt.show()
@@ -127,4 +128,5 @@ def find_suitable_hyperparameters(
 
 
 if __name__ == "__main__":
-	plot_pareto_fronts((.03, .50, .03), (.03, .25, .04))
+	plot_pareto_fronts("mergs_electron_optics")
+	# plot_pareto_fronts((.03, .50, .03), (.03, .25, .04))

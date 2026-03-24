@@ -185,7 +185,7 @@ def estimate_cost(
 
 	penalty = 0
 	for parameter, value in zip(script.parameters, parameter_vector):
-		penalty -= parameter.bias*abs(value)
+		penalty -= parameter.bias*value
 	for constraint in script.constraints:
 		value = outputs[constraint.name]
 		if value < constraint.min or value > constraint.max:
@@ -193,7 +193,7 @@ def estimate_cost(
 				raise ValueError(f"{constraint.name} is {value}, which is out of bounds [{constraint.min}, {constraint.max}]")
 			elif constraints == 'inf':
 				penalty = inf
-		penalty -= constraint.bias*abs(value)
+		penalty -= constraint.bias*value
 	return penalty
 
 
@@ -460,5 +460,5 @@ if __name__ == '__main__':
 	optimize_electron_optics(
 		.03, .30, .04, 0.01,
 		order=6, method="SLSQP",
-		save_name="mergs_electron_optics",
+		save_name="mergs_optimal_electron_optics",
 	)

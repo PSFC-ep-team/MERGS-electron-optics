@@ -15,9 +15,11 @@ VARIABLE drift_pre_aperture 1;
 VARIABLE p_shape_in_1 1;
 VARIABLE p_shape_in_2 1;
 VARIABLE p_shape_in_3 1;
+VARIABLE p_shape_in_4 1;
 VARIABLE p_shape_out_1 1;
 VARIABLE p_shape_out_2 1;
 VARIABLE p_shape_out_3 1;
+VARIABLE p_shape_out_4 1;
 
 VARIABLE p_m5_quad_field 1;
 VARIABLE p_m5_hex_field 1;
@@ -30,6 +32,8 @@ VARIABLE p_drift_pre_bend 1;
 VARIABLE p_drift_post_bend 1;
 
 VARIABLE m5_required_radius 1;
+VARIABLE m5_quad_power 1;
+VARIABLE m5_hex_power 1;
 VARIABLE dipole_bend_angle 1;
 VARIABLE dipole_bend_radius 1;
 VARIABLE dipole_min_bend_radius 1;
@@ -38,6 +42,7 @@ VARIABLE dipole_gap_height 1;
 VARIABLE dipole_side_length 1;
 VARIABLE dipole_front_secancy 1;
 VARIABLE dipole_back_secancy 1;
+VARIABLE dipole_power 1;
 
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
@@ -55,9 +60,14 @@ VARIABLE position 1 3;
 VARIABLE resolution 1 3;
 VARIABLE focal_plane_tilt 1;
 VARIABLE focal_plane_bend 1;
+VARIABLE focal_plane_left 1;
+VARIABLE focal_plane_right 1;
 VARIABLE focal_plane_length 1;
 VARIABLE focal_plane_height 1;
 VARIABLE system_length 1;
+VARIABLE system_width 1;
+VARIABLE system_depth 1;
+VARIABLE system_diagonal 1;
 
 VARIABLE FALSE 1;
 VARIABLE TRUE 1;
@@ -279,15 +289,16 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE numerator 1;
 	VARIABLE denominator 1;
 	VARIABLE dipole_min_radius 1;
+	VARIABLE dipole_max_radius 1;
 	VARIABLE dipole_central_side_length 1;
 	VARIABLE dipole_front_side_displacement 1;
 	VARIABLE dipole_back_side_displacement 1;
-	VARIABLE min_x 1;
-	VARIABLE extended_min_x 1;
-	VARIABLE i_x 1;
 	VARIABLE x 1;
 	VARIABLE z_arc 1;
 	VARIABLE z_face 1;
+	VARIABLE vertices 2 5;
+	VARIABLE i 1;
+	VARIABLE j 1;
 
 	transform_rays;
 
@@ -316,35 +327,59 @@ PROCEDURE evaluate_spectrometer;
 	focal_plane_bend := numerator/denominator; {m^-1}
 
 	calculate_beam_size FALSE;
+	focal_plane_left := beam_max_x;
+	focal_plane_right := -beam_min_x;
 	focal_plane_length := beam_width;
 	focal_plane_height := beam_height;
 
-	system_length := p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
-
 	{ calculate by how big a margin the face intersects with the inner arc, to make sure the magnet shape isn't degenerate }
 	dipole_min_radius := dipole_min_bend_radius-1.5*dipole_gap_height; { extend it 1.5*gap_height to give the beam region some buffer }
-	min_x := dipole_min_radius-dipole_bend_radius;
-	extended_min_x := MAX(dipole_min_radius*cos(dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
-	dipole_front_secancy := -100;
-	dipole_back_secancy := -100;
-	LOOP i_x 0 6;
-		x := min_x + i_x/6*(extended_min_x - min_x);
-		z_arc := SQRT(dipole_min_radius^2 - (x + dipole_bend_radius)^2); {positive z points into the magnet}
-		{ check the front face }
-		z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3;
-		dipole_front_secancy := MAX(dipole_front_secancy, z_arc - z_face); {positive is good}
-		{ then check the back face }
-		z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3;
-		dipole_back_secancy := MAX(dipole_back_secancy, z_arc - z_face);  {positive is good}
-	ENDLOOP;
+	dipole_max_radius := dipole_max_bend_radius+1.5*dipole_gap_height;
+	x := MAX(dipole_min_radius*COS(dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
+	z_arc := SQRT(dipole_min_radius^2 - (x + dipole_bend_radius)^2); {positive z points into the magnet}
+	{ check the front face }
+	z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3+p_shape_in_4*x^4;
+	dipole_front_secancy := z_arc - z_face; {must be positive for the geometry to be well defined}
+	{ then check the back face }
+	z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3+p_shape_out_4*x^4;
+	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
-	{ calculate the length of the inner side to make sure it's not negative }
+	{ calculate the length of the inner side to make sure it's at least twice the gap height }
+	x := dipole_min_radius-dipole_bend_radius;
 	dipole_central_side_length := dipole_min_radius*dipole_bend_angle*PI/180; {start with the arc length}
-    dipole_front_side_displacement := -p_shape_in_1*min_x-p_shape_in_2*min_x^2-p_shape_in_3*min_x^3; {calculate the difference in length due to entrance face shape}
-    dipole_back_side_displacement := -p_shape_out_1*min_x-p_shape_out_2*min_x^2-p_shape_out_3*min_x^3; {calculate the difference in length due to exit face shape}
+    dipole_front_side_displacement := -p_shape_in_1*x-p_shape_in_2*x^2-p_shape_in_3*x^3-p_shape_in_4*x^4; {calculate the difference in length due to entrance face shape}
+    dipole_back_side_displacement := -p_shape_out_1*x-p_shape_out_2*x^2-p_shape_out_3*x^3-p_shape_out_4*x^4; {calculate the difference in length due to exit face shape}
 	dipole_side_length := dipole_central_side_length+dipole_front_side_displacement+dipole_back_side_displacement;
 
- ENDPROCEDURE;
+	{ calculate the dimensions of the system }
+	system_length := p_m5_length + p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
+	vertices(1) := 0 & 0; {foil}
+	vertices(2) := p_m5_length + p_drift_pre_bend &
+	               -dipole_bend_radius + dipole_max_radius; {magnet front left}
+	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(dipole_bend_angle,90)/180*PI) &
+	               -dipole_bend_radius + dipole_max_radius*COS(MIN(dipole_bend_angle,90)/180*PI); {magnet back left}
+	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_drift_post_bend*COS(dipole_bend_angle/180*PI) + focal_plane_left*SIN(dipole_bend_angle/180*PI) &
+	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_drift_post_bend*SIN(dipole_bend_angle/180*PI) + focal_plane_left*COS(dipole_bend_angle/180*PI);
+	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_drift_post_bend*COS(dipole_bend_angle/180*PI) - focal_plane_right*SIN(dipole_bend_angle/180*PI) &
+	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_drift_post_bend*SIN(dipole_bend_angle/180*PI) - focal_plane_right*COS(dipole_bend_angle/180*PI);
+	system_depth := 0;
+	system_width := 0;
+	system_diagonal := 0;
+	LOOP i 2 5;
+		LOOP j 1 I-1;
+			system_depth := MAX(system_depth, ABS(vertices(i)|1 - vertices(j)|1));
+			system_width := MAX(system_width, ABS(vertices(i)|2 - vertices(j)|2));
+			system_diagonal := MAX(system_diagonal, SQRT((vertices(i)|1 - vertices(j)|1)^2 + (vertices(i)|2 - vertices(j)|2)^2));
+		ENDLOOP;
+	ENDLOOP;
+
+	{ estimate the power draw }
+	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
+	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
+	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * dipole_bend_angle/180*PI*(dipole_min_radius + dipole_max_radius)/2;
+	{ technically you have to multiply by the resistance-per-length of your cables to get power }
+
+ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
 
@@ -418,9 +453,9 @@ ENDPROCEDURE;
 
 PROCEDURE elt_spectrometer;
 	VARIABLE central_momentum 1;
-	VARIABLE shape_in 1 3;
-	VARIABLE shape_out 1 3;
-	VARIABLE shape_zero 1 3;
+	VARIABLE shape_in 1 4;
+	VARIABLE shape_out 1 4;
+	VARIABLE shape_zero 1 4;
 
 	central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
@@ -429,12 +464,15 @@ PROCEDURE elt_spectrometer;
 	shape_in(1) := p_shape_in_1;
 	shape_in(2) := p_shape_in_2;
 	shape_in(3) := p_shape_in_3;
+	shape_in(4) := p_shape_in_4;
 	shape_out(1) := p_shape_out_1;
 	shape_out(2) := p_shape_out_2;
 	shape_out(3) := p_shape_out_3;
+	shape_out(4) := p_shape_out_4;
 	shape_zero(1) := 0;
 	shape_zero(2) := 0;
 	shape_zero(3) := 0;
+	shape_zero(4) := 0;
 
 	UNITY_MAP;
 
@@ -458,7 +496,7 @@ PROCEDURE elt_spectrometer;
 
 	ELT_BENDING
 		dipole_bend_radius dipole_bend_angle p_dipole_halfwidth
-		shape_zero shape_in shape_out 3;
+		shape_zero shape_in shape_out 4;
 
 	calculate_beam_size TRUE;
 	dipole_gap_height := MAX(dipole_gap_height, beam_height);
@@ -506,22 +544,23 @@ PROCEDURE main;
 	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.0067845432676948555; {{PARAM |min=-1.1 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_m5_quad_field := 0.0067845432676948555; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.12155900768169678; {{PARAM |min=0.01 |max=1.1 |bias=-1/0.05 |unit=T}}
+	p_dipole_field := 0.12155900768169678; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
 	p_m5_length := 0.1721221547761307; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
 	p_dipole_length := 0.6389753180417704; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.20;
-	p_drift_pre_bend := 0.10782029281359036; {{PARAM |min=0 |max=2 |bias=-1/0.10 |unit=m}}
-	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=-1/0.10 |unit=m}}
+	p_drift_pre_bend := 0.10782029281359036; {{PARAM |min=0 |max=2 |bias=0 |unit=m}}
+	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
 	p_shape_in_1 := 0.9969794889186046; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 7.302455799500992; {{PARAM |min=-10 |max=10 |bias=-1/1 |unit=1/m}}
-	p_shape_in_3 := 11.405134483755647;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_in_2 := 7.302455799500992; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 11.405134483755647;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_in_4 := 0;  {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
 	p_shape_out_1 := 0.22108825337094135; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=-1/1 |unit=1/m^2}}
-	p_shape_out_3 := 2.0946638684626846;  {{PARAM |min=-100 |max=100 |bias=-1/10 |unit=1/m^3}}
+	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 2.0946638684626846;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_4 := 0;  {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
 
 	{ ---- final hexapole optimization ---- }
 
@@ -558,34 +597,36 @@ PROCEDURE main;
 		p_shape_out_2 := 10;
 	ENDIF;
 
-	WRITE out 'foil_width := '&SF(foil_width, '(G13.7)')&';';
-	WRITE out 'foil_height := '&SF(foil_height, '(G13.7)')&';';
-	WRITE out 'aperture_width := '&SF(aperture_width, '(G13.7)')&';';
-	WRITE out 'aperture_height := '&SF(aperture_height, '(G13.7)')&';';
-	WRITE out 'p_m5_quad_field := '&SF(p_m5_quad_field, '(G13.7)')&';';
-	WRITE out 'p_m5_hex_field := '&SF(p_m5_hex_field, '(G13.7)')&';';
-	WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(G13.7)')&';';
-	WRITE out 'p_m5_radius := '&SF(p_m5_radius, '(G13.7)')&';';
-	WRITE out 'p_m5_length := '&SF(p_m5_length, '(G13.7)')&';';
-	WRITE out 'p_dipole_halfwidth := '&SF(p_dipole_halfwidth, '(G13.7)')&';';
-	WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G13.7)')&';';
-	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G13.7)')&';';
-	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G13.7)')&';';
-	WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G13.7)')&';';
-	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G13.7)')&';';
-	WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G13.7)')&';';
-	WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G13.7)')&';';
-	WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G13.7)')&';';
-	WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G13.7)')&';';
-	WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G13.7)')&';';
+	WRITE out 'foil_width := '&SF(foil_width, '(G21.15)')&';';
+	WRITE out 'foil_height := '&SF(foil_height, '(G21.15)')&';';
+	WRITE out 'aperture_width := '&SF(aperture_width, '(G21.15)')&';';
+	WRITE out 'aperture_height := '&SF(aperture_height, '(G21.15)')&';';
+	WRITE out 'p_m5_quad_field := '&SF(p_m5_quad_field, '(G21.15)')&';';
+	WRITE out 'p_m5_hex_field := '&SF(p_m5_hex_field, '(G21.15)')&';';
+	WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(G21.15)')&';';
+	WRITE out 'p_m5_radius := '&SF(p_m5_radius, '(G21.15)')&';';
+	WRITE out 'p_m5_length := '&SF(p_m5_length, '(G21.15)')&';';
+	WRITE out 'p_dipole_halfwidth := '&SF(p_dipole_halfwidth, '(G21.15)')&';';
+	WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G21.15)')&';';
+	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G21.15)')&';';
+	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G21.15)')&';';
+	WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G21.15)')&';';
+	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G21.15)')&';';
+	WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G21.15)')&';';
+	WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G21.15)')&';';
+	WRITE out 'p_shape_in_4 := '&SF(p_shape_in_4, '(G21.15)')&';';
+	WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G21.15)')&';';
+	WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G21.15)')&';';
+	WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G21.15)')&';';
+	WRITE out 'p_shape_out_4 := '&SF(p_shape_out_4, '(G21.15)')&';';
 	WRITE out '';
-	WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G13.7)')&';';
-	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G13.7)')&';';
-	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G13.7)')&';';
-	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G13.7)')&';';
-	WRITE out 'dipole_gap_height := '&SF(dipole_gap_height, '(G13.7)')&';';
-	WRITE out 'hodoscope_right := '&SF(-position(1), '(G13.7)')&';';
-	WRITE out 'hodoscope_left := '&SF(position(num_energies), '(G13.7)')&';';
+	WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G21.15)')&';';
+	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G21.15)')&';';
+	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G21.15)')&';';
+	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G21.15)')&';';
+	WRITE out 'dipole_gap_height := '&SF(dipole_gap_height, '(G21.15)')&';';
+	WRITE out 'hodoscope_right := '&SF(focal_plane_right, '(G21.15)')&';';
+	WRITE out 'hodoscope_left := '&SF(focal_plane_left, '(G21.15)')&';';
 
 	{ ---- final spectrometer ---- }
 
@@ -618,20 +659,26 @@ PROCEDURE main;
 
 	WRITE out '';
 
-	WRITE out 'quadripole beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'm5 beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
+	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
-	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
-	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' dipole_side_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
 	WRITE out 'magnification:' ME(1,1) 'x';
 	WRITE out 'focus:' ME(1,2)*100 'cm/rad';
 	WRITE out 'dispersion:' ME(1,6)/central_energy*100 'cm/MeV';
 	WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg'; {{CONSTRAINT |min=-5 |max=5 |bias=0 |unit=deg}}
 	WRITE out 'focal plane bend:' focal_plane_bend '/m';
-	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=0 |max=100 |bias=0 |unit=cm}}
-	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=50 |bias=-1/2.0 |unit=cm}}
-	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';  {{CONSTRAINT |min=0.00 |max=10 |bias=-1/1.0 |unit=cm}}
-	WRITE out 'system length:' system_length*100 'cm'; {{CONSTRAINT |min=0 |max=300 |bias=0 |unit=cm}}
+	WRITE out 'focal plane length:' focal_plane_length*100 'cm';
+	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/2.0 |unit=cm}}
+	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
+	WRITE out 'system length:' system_length*100 'cm';
+	WRITE out 'system depth:' system_depth*100 'cm';
+	WRITE out 'system width:' system_width*100 'cm';
+	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=0 |max=1000 |bias=-1/10 |unit=cm}}
 	WRITE out 'beam centroid:';
 	LOOP i 1 num_energies;
 		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';

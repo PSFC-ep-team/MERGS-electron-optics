@@ -24,9 +24,11 @@ p_drift_post_bend := 0.791168119205845;
 p_shape_in_1 := 0.996979488918605;
 p_shape_in_2 :=  7.30245579950099;
 p_shape_in_3 :=  11.4051344837556;
+p_shape_in_4 :=  0.00000000000000;
 p_shape_out_1 := 0.221088253370941;
 p_shape_out_2 := -1.43902941312980;
 p_shape_out_3 :=  2.09466386846268;
+p_shape_out_4 :=  0.00000000000000;
 
 dipole_bend_angle :=  95.2261786573728;
 dipole_max_bend_radius := 0.703316642683299;
@@ -83,11 +85,13 @@ def draw_magnets():
 			parameters["p_shape_in_1"],
 			parameters["p_shape_in_2"],
 			parameters["p_shape_in_3"],
+			parameters["p_shape_in_4"],
 		],
 		[
 			parameters["p_shape_out_1"],
 			parameters["p_shape_out_2"],
 			parameters["p_shape_out_3"],
+			parameters["p_shape_out_4"],
 		],
 	)
 	x, y = draw_drift_length(
