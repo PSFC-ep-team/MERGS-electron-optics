@@ -31,6 +31,8 @@ VARIABLE p_dipole_length 1;
 VARIABLE p_drift_pre_bend 1;
 VARIABLE p_drift_post_bend 1;
 
+VARIABLE detector_thickness 1;
+
 VARIABLE m5_required_radius 1;
 VARIABLE m5_quad_power 1;
 VARIABLE m5_hex_power 1;
@@ -133,6 +135,7 @@ ENDPROCEDURE;
 PROCEDURE CONFIG_FRINGE_FIELD_MODE_ACCURATE;
 	FR 3; {fringe mode = accurate}
 ENDPROCEDURE;
+
 {
 	- `order`: maximum order of DA transfer map.
 	- `phase_space_dim`: 1: x/a only, 2: add y/b, 3: add time/chromatic effects.
@@ -278,6 +281,9 @@ ENDPROCEDURE;
 
 { calculate key performance metrics of the map }
 PROCEDURE evaluate_spectrometer;
+	VARIABLE momentum_ratio 1;
+	VARIABLE x 1;
+	VARIABLE z 1;
 	VARIABLE count 1;
 	VARIABLE sum_x 1;
 	VARIABLE sum_x2 1;
@@ -293,7 +299,6 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE dipole_central_side_length 1;
 	VARIABLE dipole_front_side_displacement 1;
 	VARIABLE dipole_back_side_displacement 1;
-	VARIABLE x 1;
 	VARIABLE z_arc 1;
 	VARIABLE z_face 1;
 	VARIABLE vertices 2 5;
@@ -304,14 +309,18 @@ PROCEDURE evaluate_spectrometer;
 
 	LOOP i_energy 1 num_energies;
 		d_energy := beam_d_energies(i_energy);
+		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 		count := 0;
 		sum_x := 0;
 		sum_x2 := 0;
 		LOOP i_ray 1 num_rays;
 			IF input_rays(i_ray,6)=d_energy;
-				count := count + 1;
-				sum_x := sum_x + output_rays(i_ray,1); {m}
-				sum_x2 := sum_x2 + output_rays(i_ray,1)^2; {m^2}
+				LOOP z -detector_thickness/2 detector_thickness/2 detector_thickness;
+					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
+					count := count + 1;
+					sum_x := sum_x + x; {m}
+					sum_x2 := sum_x2 + x^2; {m^2}
+				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
 		position(i_energy) := sum_x/count; {m}
@@ -559,8 +568,11 @@ PROCEDURE main;
 	p_shape_in_4 := 0;  {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
 	p_shape_out_1 := 0.22108825337094135; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
 	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 2.0946638684626846;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_out_4 := 0;  {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_out_3 := 2.0946638684626846; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_4 := 0; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+
+	{ set the detector thickness }
+	detector_thickness := 0.02; {m}
 
 	{ ---- final hexapole optimization ---- }
 
