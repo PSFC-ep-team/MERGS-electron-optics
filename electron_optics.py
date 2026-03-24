@@ -70,7 +70,7 @@ def optimize_electron_optics(
 			method='COBYQA',
 			options=dict(
 				initial_tr_radius=1e-1,
-				final_tr_radius=1e-6 if final else 1e-3,
+				final_tr_radius=1e-3,
 			)
 		)
 		solution = result.x*scale + shift

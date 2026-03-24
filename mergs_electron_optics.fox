@@ -560,54 +560,21 @@ PROCEDURE main;
 	p_m5_radius := p_m5_length/4;
 	p_dipole_length := 0.6389753180417704; {{PARAM |min=0.02 |max=2 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.20;
-	p_drift_pre_bend := 0.10782029281359036; {{PARAM |min=0 |max=2 |bias=0 |unit=m}}
-	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
+	p_drift_pre_bend := 0.10782029281359036; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	p_shape_in_1 := 0.9969794889186046; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
 	p_shape_in_2 := 7.302455799500992; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
 	p_shape_in_3 := 11.405134483755647;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_in_4 := 0;  {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_in_4 := 0;
 	p_shape_out_1 := 0.22108825337094135; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -1.6; {{CONSTRAINT |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_2 := -1.6; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
 	p_shape_out_3 := 2.0946638684626846; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_out_4 := 0; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_out_4 := 0;
 
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
 
-	{ ---- final hexapole optimization ---- }
-
-	{ optimization algorithms
-		1 - Nelder-Mead
-		3 - simulated annealing
-		4 - Levenberg-Marquardt }
-	optimizer := 4;
-
-	y_scale := 0;
-
-	FIT p_shape_out_2;
-		UNITY_MAP;
-		CLEAR_RAYS;
-		gen_rays;
-
-		IF output_mode=1;
-			PTY y_scale;
-			DRAW_BEGIN_PATH;
-		ENDIF;
-		elt_spectrometer;
-		IF output_mode=1;
-			DRAW_END_PATH;
-			PG -1 -2;
-		ENDIF;
-
-		evaluate_spectrometer;
-		objective := focal_plane_tilt;
-	ENDFIT 1e-10 100 optimizer objective;
-
-	IF p_shape_out_2<-10;
-		p_shape_out_2 := -10;
-	ELSEIF p_shape_out_2>10;
-		p_shape_out_2 := 10;
-	ENDIF;
+	evaluate_spectrometer;
 
 	WRITE out 'foil_width := '&SF(foil_width, '(G21.15)')&';';
 	WRITE out 'foil_height := '&SF(foil_height, '(G21.15)')&';';
