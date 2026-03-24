@@ -574,6 +574,12 @@ PROCEDURE main;
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
 
+	{ ---- spectrometer definition ---- }
+
+	UNITY_MAP;
+	CLEAR_RAYS;
+	gen_rays;
+	elt_spectrometer;
 	evaluate_spectrometer;
 
 	WRITE out 'foil_width := '&SF(foil_width, '(G21.15)')&';';
@@ -607,34 +613,30 @@ PROCEDURE main;
 	WRITE out 'hodoscope_right := '&SF(focal_plane_right, '(G21.15)')&';';
 	WRITE out 'hodoscope_left := '&SF(focal_plane_left, '(G21.15)')&';';
 
-	{ ---- final spectrometer ---- }
-
-	UNITY_MAP;
-	CLEAR_RAYS;
-	gen_rays;
+	{ ---- graphic output ---- }
 
 	IF output_mode#0;
+		UNITY_MAP;
+		CLEAR_RAYS;
+		gen_rays;
+
 		PTY y_scale;
+
 		DRAW_BEGIN_PATH;
-	ENDIF;
-
-	elt_spectrometer;
-
-	IF output_mode=1;
-		{ output to GUI and PDF }
+		elt_spectrometer;
 		DRAW_END_PATH;
-		PG -12 -12;
-		PG -1 -2;
-	ENDIF;
-	IF output_mode=2;
-		{ output to PDF file }
-		DRAW_END_PATH;
-		PG -12 -12;
+
+		IF output_mode=1;
+			{ output to GUI and PDF }
+			PG -12 -12;
+			PG -1 -2;
+		ELSEIF output_mode=2;
+			{ output just to PDF file }
+			PG -12 -12;
+		ENDIF;
 	ENDIF;
 
 	{ ---- primary outputs ---- }
-
-	evaluate_spectrometer;
 
 	WRITE out '';
 
