@@ -49,12 +49,12 @@ def optimize_electron_optics(
 			objective_function,
 			initial_guess,
 			args=(script, frugality, "ignore", cache),
-			jac="3-point",
+			jac="2-point",
 			bounds=bounds,
 			constraints=reformat_constraints(script, cache),
 			method='SLSQP',
 			options=dict(
-				ftol=1e-6 if final else 1e-3,
+				ftol=1e-3,
 			)
 		)
 		solution = result.x
@@ -244,6 +244,9 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 		if "$$$ ERROR" in output or "### ERROR" in output or len(output) <= 4:
 			print(output)
 			raise RuntimeError("COSY threw an error")
+		if "NaN" in output:
+			print(output)
+			raise RuntimeError("COSY had a NaN")
 		if "******" in output:
 			print(output)
 			raise RuntimeError("COSY screwed up a number format")

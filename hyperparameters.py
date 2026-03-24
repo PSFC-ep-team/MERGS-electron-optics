@@ -135,9 +135,11 @@ def optimize_parameters(
 	# check the permanent cache
 	try:
 		parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality)
+		print("loading a previus optimized magnet system from the cache...")
 
 	# optimize the magnet parameters
 	except ValueError:
+		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			final=final, save_name=save_name)
@@ -205,7 +207,7 @@ def calculate_resolution(
 		return 5000
 
 	# use COSY to get the transfer map matrix
-	cosy_script = load_script(foil_diameter, aperture_distance, aperture_diameter, order=6)
+	cosy_script = load_script(foil_diameter, aperture_distance, aperture_diameter, order=3)
 	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
 	map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
 	with open(map_filename, "w") as file:
