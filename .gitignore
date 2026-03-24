@@ -6,3 +6,4 @@ pic*.pdf
 pic*.svg
 .idea/*
 __pycache__/*
+pareto.pdf
