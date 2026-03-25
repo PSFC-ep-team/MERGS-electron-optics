@@ -2,7 +2,6 @@
 code for scanning hyperparameters to find the set of all good designs
 """
 import multiprocessing
-import os.path
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional
@@ -10,10 +9,18 @@ from typing import Optional
 from MPR_Tools.analysis.performance import PerformanceAnalyzer
 from MPR_Tools.core.conversion_foil import ConversionFoil
 from MPR_Tools.core.spectrometer import MPRSpectrometer
+from MPR_Tools.config.constants import FOIL_MATERIALS
 from numpy import log1p, inf
 from scipy import optimize
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
+
+
+# turn off pair production
+for material in FOIL_MATERIALS.values():
+	for interaction in material["interactions"][:]:
+		if interaction["type"] == "pair_production":
+			material["interactions"].remove(interaction)
 
 
 def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
