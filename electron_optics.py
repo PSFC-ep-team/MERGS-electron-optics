@@ -293,7 +293,7 @@ def load_script(foil_diameter: float, aperture_distance: float, aperture_diamete
 	script_content = set_hyperparameters(
 		script_content,
 		foil_width=foil_diameter, foil_height=foil_diameter,
-		aperture_width=aperture_diameter/sqrt(2), aperture_height=aperture_diameter*sqrt(2),
+		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
 		drift_pre_aperture=aperture_distance, order=order)
 	parameters, constraints = infer_parameter_names(script_content)
 	return Script(script_content, parameters, constraints)

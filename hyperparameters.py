@@ -2,6 +2,7 @@
 code for scanning hyperparameters to find the set of all good designs
 """
 import multiprocessing
+import os.path
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional
@@ -9,18 +10,10 @@ from typing import Optional
 from MPR_Tools.analysis.performance import PerformanceAnalyzer
 from MPR_Tools.core.conversion_foil import ConversionFoil
 from MPR_Tools.core.spectrometer import MPRSpectrometer
-from MPR_Tools.config.constants import FOIL_MATERIALS
-from numpy import log1p, inf, sqrt, pi
+from numpy import log1p, inf
 from scipy import optimize
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
-
-
-# turn off pair production
-for material in FOIL_MATERIALS.values():
-	for interaction in material["interactions"][:]:
-		if interaction["type"] == "pair_production":
-			material["interactions"].remove(interaction)
 
 
 def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
@@ -177,7 +170,7 @@ def optimize_foil_thickness(
 	:return: the optimal foil thickness in μm
 	"""
 	# first use a quick MC to calculate the geometric efficiency
-	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_radius=0, aperture_width=aperture_diameter/2*sqrt(pi/2), aperture_height=aperture_diameter/2*sqrt(pi*2), foil_material="B", aperture_type="rect")
+	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
 		16.7, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
 	nuclear_efficiency = 2.4e-5*.89/(17.6*1.6e-19)  # photons/MJ (only counting the 89% that fall above 11 MeV)
@@ -227,9 +220,7 @@ def calculate_resolution(
 				foil_radius=foil_diameter/2,
 				thickness=foil_thickness,
 				aperture_distance=aperture_distance,
-				aperture_radius=0,
-				aperture_width=aperture_diameter/2*sqrt(pi/2), aperture_height=aperture_diameter/2*sqrt(pi*2),
-				aperture_type="rect",
+				aperture_radius=aperture_diameter/2,
 				foil_material="B",
 			),
 			transfer_map_path=map_filename,
