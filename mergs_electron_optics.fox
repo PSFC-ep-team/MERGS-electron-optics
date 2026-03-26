@@ -550,25 +550,25 @@ PROCEDURE main;
 	foil_height := 0.03;
 	aperture_width := 0.04;
 	aperture_height := 0.04;
-	drift_pre_aperture := 0.30;
+	drift_pre_aperture := 0.40;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.0095697076510773; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.031300645351772766; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.10856671514107252; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.1788508617746179; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.18372336807884343; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.18921317749993172; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.7011365693034044; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.3422226052598316; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.20;
-	p_drift_pre_bend := 0.2190135287418525; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_drift_pre_bend := 0.16010588624398012; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
 	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
-	p_shape_in_1 := 0.8913863955392556; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.216441477654978; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.436291914788693;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_in_1 := 0.3761116761653014; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 5.058832590355028; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 11.714098827309424;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
-	p_shape_out_1 := 0.2805476516714071; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -1.219390055696292; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 1.5700395502335032; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := 0.31334910601715915; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -2.552883925974445; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 3.1579691150692075; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 
 	{ set the detector thickness }

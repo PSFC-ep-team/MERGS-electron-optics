@@ -31,7 +31,7 @@ def optimize_electron_optics(
 	:param save_name: a filename for the final solution
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
-	script = load_script(foil_diameter, aperture_distance, aperture_diameter, order)
+	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
 
 	cache = {}
 
@@ -286,9 +286,9 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 	return outputs
 
 
-def load_script(foil_diameter: float, aperture_distance: float, aperture_diameter: float, order: int) -> Script:
+def load_script(filename: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float, order: int) -> Script:
 	""" load the COSY script from disc into a Script object """
-	with open(f'mergs_electron_optics.fox', 'r') as file:
+	with open(f'{filename}.fox', 'r') as file:
 		script_content = file.read()
 	script_content = set_hyperparameters(
 		script_content,
@@ -461,7 +461,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .30, .04, 0.01,
+		.03, .40, .04, 0.05,
 		order=6, method="SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)

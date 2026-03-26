@@ -11,32 +11,32 @@ foil_width := 0.300000000000000E-01;
 foil_height := 0.300000000000000E-01;
 aperture_width := 0.400000000000000E-01;
 aperture_height := 0.400000000000000E-01;
-p_m5_quad_field := 0.678454326769486E-02;
+p_m5_quad_field := 0.313006453517728E-01;
 p_m5_hex_field :=  0.00000000000000;
-p_dipole_field := 0.121559007681697;
-p_m5_radius := 0.430305386940327E-01;
-p_m5_length := 0.172122154776131;
+p_dipole_field := 0.183723368078843;
+p_m5_radius := 0.473032943749829E-01;
+p_m5_length := 0.189213177499932;
 p_dipole_halfwidth := 0.200000000000000;
-p_dipole_length := 0.638975318041770;
-drift_pre_aperture := 0.300000000000000;
-p_drift_pre_bend := 0.107820292813590;
-p_drift_post_bend := 0.791168119205845;
-p_shape_in_1 := 0.996979488918605;
-p_shape_in_2 :=  7.30245579950099;
-p_shape_in_3 :=  11.4051344837556;
+p_dipole_length := 0.342222605259832;
+drift_pre_aperture := 0.400000000000000;
+p_drift_pre_bend := 0.160105886243980;
+p_drift_post_bend := 0.644136165297211;
+p_shape_in_1 := 0.376111676165301;
+p_shape_in_2 :=  5.05883259035503;
+p_shape_in_3 :=  11.7140988273094;
 p_shape_in_4 :=  0.00000000000000;
-p_shape_out_1 := 0.221088253370941;
-p_shape_out_2 := -1.43902941312980;
-p_shape_out_3 :=  2.09466386846268;
+p_shape_out_1 := 0.313349106017159;
+p_shape_out_2 := -2.55288392597445;
+p_shape_out_3 :=  3.15796911506921;
 p_shape_out_4 :=  0.00000000000000;
 
-dipole_bend_angle :=  95.2261786573728;
-dipole_max_bend_radius := 0.703316642683299;
-dipole_central_bend_radius := 0.384459288958230;
-dipole_min_bend_radius := 0.224464937362926;
-dipole_gap_height := 0.103552034578229;
-hodoscope_right := 0.825033200335336;
-hodoscope_left := 0.284103224651263;
+dipole_bend_angle :=  77.0829309201832;
+dipole_max_bend_radius := 0.446551196213342;
+dipole_central_bend_radius := 0.254374226580243;
+dipole_min_bend_radius := 0.168657172863990;
+dipole_gap_height := 0.735211257214391E-01;
+hodoscope_right := 0.576722873792383;
+hodoscope_left := 0.198583421419653;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -275,12 +275,12 @@ def evaluate_polynomial(x, coefficients, lower_breakpoint=-inf, upper_breakpoint
 def write_SVG(filename: str, paths: List[Path]) -> None:
 	svg_string = (
 		'<?xml version="1.0" encoding="UTF-8"?>\n'
-		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 1.50 1.50" width="150cm" height="150cm">\n'
+		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 1.50 1.50" width="15cm" height="15cm">\n'
 		'  <style>\n'
 		'    .magnet { fill: #8b959e; stroke: none; }\n'
 		'    .plane { fill: none; stroke: #8b959e; stroke-width: .01; stroke-linecap: butt; }\n'
 		'    .central-ray { fill: none; stroke: #750014; stroke-width: .01; stroke-linecap: round; }\n'
-		'    .guide { fill: none; stroke: #ffffff; stroke-width: .005; stroke-linecap: butt; stroke-dasharray: .01 }\n'
+		'    .guide { fill: none; stroke: #ffffff; stroke-width: .005; stroke-linecap: square; stroke-dasharray: .005 .015 }\n'
 		'  </style>\n'
 	)
 

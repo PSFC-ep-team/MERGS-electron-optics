@@ -70,7 +70,7 @@ def optimize_parameters_and_frugality(
 		target_resolution: float, target_efficiency: float,
 		executor: Optional[Executor], final=False, save_name: str = None) -> tuple[float, Optional[list[float]], float, float]:
 	"""
-	for a given foil and aperture dimensions, optimize the magnet system and foil thickness to achieve the given resolution and efficiency for the lowest cost
+	for a given foil and aperture dimensions, find the optimal magnet system and foil thickness that achieves the given resolution and efficiency for the lowest cost
 	:param foil_diameter: the foil diameter in m
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
@@ -85,7 +85,9 @@ def optimize_parameters_and_frugality(
 
 	foil_thickness = optimize_foil_thickness(
 		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor)
-	best_possible_resolution = calculate_foil_resolution(foil_thickness)
+	best_possible_resolution = calculate_resolution(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
+		magnet_system_filename=None, parameters=None, executor=executor)
 
 	if best_possible_resolution > target_resolution:
 		print(f"It is not possible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
@@ -123,7 +125,7 @@ def optimize_parameters(
 		frugality: float, cache: dict[float, tuple[list[float], float, float]], executor: Optional[Executor],
 		final=False, save_name: str = None) -> tuple[list[float], float, float]:
 	"""
-	for a given foil/aperture dimensions and frugality, optimize the magnet system to achieve the given efficiency with the best resolution
+	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves the given efficiency with the best resolution
 	:param foil_diameter: the foil diameter in m
 	:param foil_thickness: the foil thickness in μm
 	:param aperture_distance: the distance from the foil to the aperture in m
@@ -154,7 +156,7 @@ def optimize_parameters(
 
 	# calculate the resolution
 	total_resolution = calculate_resolution(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, parameters,
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, "mergs_electron_optics", parameters,
 		executor)
 
 	# print, save, and return
@@ -196,7 +198,7 @@ def optimize_foil_thickness(
 def calculate_resolution(
 		foil_diameter: float, foil_thickness: float,
 		aperture_distance: float, aperture_diameter: float,
-		parameters: Optional[list[float]],
+		magnet_system_filename: Optional[str], parameters: Optional[list[float]],
 		executor: Optional[Executor]) -> float:
 	"""
 	evaluate a complete design to determine its total energy resolution
@@ -204,21 +206,37 @@ def calculate_resolution(
 	:param foil_thickness: the foil thickness in μm
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
-	:param parameters: the electron optics parameters
+	:param magnet_system_filename: name of a file containing the electron optics configuration and default parameters
+	:param parameters: the electron optics parameters, if different from what's currently in the file
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: resolution at 16.7 MeV (keV)
 	"""
 	# first make sure the foil is a reasonable thickness
-	foil_broadening = calculate_foil_resolution(foil_thickness)
+	foil_broadening = calculate_foil_broadening(foil_thickness)
 	if foil_broadening > 5000:  # if it's really really thick, skip this calculation as it might not work properly
 		return 5000
 
-	# use COSY to get the transfer map matrix
-	cosy_script = load_script(foil_diameter, aperture_distance, aperture_diameter, order=3)
-	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
-	map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
-	with open(map_filename, "w") as file:
-		file.write(cosy_outputs["map"])
+	if magnet_system_filename is not None:
+		# use COSY to get the transfer map matrix
+		cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order=3)
+		cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
+		map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
+		with open(map_filename, "w") as file:
+			file.write(cosy_outputs["map"])
+
+	else:
+		# or make the map ideal so that we don't have to worry about the magnets
+		map_filename = f"generated/ideal_map.txt"
+		ideal_map = (
+			"0.0  0.0  0.0  0.0  0.0  100000\n"
+			"0.0  0.0  0.0  0.0  0.0  010000\n"
+			"0.0  0.0  1.0  0.0  0.0  001000\n"
+			"0.0  0.0  0.0  1.0  0.0  000100\n"
+			"0.0  0.0  0.0  0.0  1.0  000010\n"
+			"1.0  0.0  0.0  0.0  0.0  000001\n"
+		)
+		with open(map_filename, "w") as file:
+			file.write(ideal_map)
 
 	# use MPR_Tools to calculate the resolution
 	monte_carlo = PerformanceAnalyzer(
@@ -231,18 +249,24 @@ def calculate_resolution(
 				foil_material="B",
 			),
 			transfer_map_path=map_filename,
-			reference_energy=13.2, min_energy=9.24, max_energy=17.16,
+			reference_energy=13.5, min_energy=9.45, max_energy=17.55,
 			hodoscope=None,
 			run_directory="generated/monte-carlo-dump/",
 		),
 	)
-	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-		incident_energy=16.7, num_recoil_particles=10_000, executor=executor, max_workers=8 if executor else 1)
+
+	try:
+		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+			incident_energy=16.7, num_recoil_particles=10_000, executor=executor, max_workers=8 if executor else 1)
+	except ValueError:
+		return inf  # an aperture that's much smaller than the foil can make this calculation arbitrarily slow.  return inf to discourage that.
+
 	return min(5000, resolution)  # don't report resolutions above 5 MeV because it gets hard to define then
 
 
-def calculate_foil_resolution(foil_thickness: float) -> float:
-	foil = ConversionFoil(0 , foil_thickness, 0, 0, foil_material="B")
+def calculate_foil_broadening(foil_thickness: float) -> float:
+	""" calculate the resolution for a perfect ion-optic system, just accounting for broadening and kinematics """
+	foil = ConversionFoil(0, foil_thickness, 0, 0, foil_material="B")
 	initial_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
 	min_exit_energy = foil.calculate_stopping_power_loss(initial_energy, foil_thickness*1e-6)
 	return (initial_energy - min_exit_energy)*1000
