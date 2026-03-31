@@ -10,7 +10,7 @@ from typing import Sequence, Callable
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MultipleLocator
-from numpy import geomspace, stack, array
+from numpy import geomspace, stack, concatenate, array
 from numpy.ma.core import empty_like
 from scipy import optimize
 
@@ -36,85 +36,111 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 			raise ValueError(f"wth does {design} mean?")
 
 		if os.path.isfile(f"generated/{name}_pareto_front.txt"):
-			resolutions, efficiencies = np.loadtxt(f"generated/{name}_pareto_front.txt", unpack=True)
+			front = np.loadtxt(f"generated/{name}_pareto_front.txt")
+			resolutions = front[:, 0]
+			efficiencies = front[:, 1]
+			hyperparameters = front[:, 2:]
 			print(f"re-loaded a previously calculated pareto front for {name}")
 
 		else:
 			if type(design) is str:
-				resolutions, efficiencies = find_pareto_front_of_magnet_design(name)
+				resolutions, efficiencies, hyperparameters = find_pareto_front_of_magnet_design(name)
 			elif len(design) == 3:
 				foil_diameter, aperture_distance, aperture_diameter = design
-				resolutions, efficiencies = find_pareto_front_of_aperture_design(foil_diameter, aperture_distance, aperture_diameter)
+				resolutions, efficiencies, hyperparameters = find_pareto_front_of_aperture_design(foil_diameter, aperture_distance, aperture_diameter)
 			elif len(design) == 1:
 				foil_diameter, = design
-				resolutions, efficiencies = find_pareto_front_of_collimator(foil_diameter)
+				resolutions, efficiencies, hyperparameters = find_pareto_front_of_collimator(foil_diameter)
 			else:
 				raise ValueError(f"wth does {design} mean?")
 
 			np.savetxt(
 				f"generated/{name}_pareto_front.txt",
-				stack([resolutions, efficiencies], axis=1))
+				concatenate([
+					stack([resolutions, efficiencies], axis=1),
+					hyperparameters,
+				], axis=1))
 
-		fronts.append((resolutions, efficiencies, label))
+		fronts.append((resolutions, efficiencies, hyperparameters, label))
 
 	plt.rcParams["font.size"] = 12
 	plt.rcParams['xtick.labelsize'] = 12
 	plt.rcParams['ytick.labelsize'] = 12
 
-	plt.figure(figsize=(4.5, 4.0))
-	plt.grid()
-	for resolutions, efficiencies, label in fronts:
+	performance_fig = plt.figure(figsize=(4.5, 4.0))
+	performance_ax = performance_fig.add_subplot()
+	parameter_fig = plt.figure(figsize=(6.0, 3.0))
+	parameter_ax = parameter_fig.add_subplot()
+
+	performance_ax.grid()
+	parameter_ax.grid()
+
+	for resolutions, efficiencies, hyperparameters, label in fronts:
 		linestyle = "dashed" if "Ideal" in label else "solid"
-		plt.plot(resolutions, efficiencies, label=label, linestyle=linestyle)
+		performance_ax.plot(resolutions, efficiencies, label=label, linestyle=linestyle)
+		parameter_ax.plot(array(hyperparameters)[:, 2]*100, array(hyperparameters)[:, 3]*50, label=label)
+
 	if len(fronts) > 1:
-		plt.legend()
-	plt.xlim(0, 1000)
-	plt.gca().xaxis.set_major_locator(MultipleLocator(250))
-	plt.yscale("log")
-	plt.ylim(0.1, 10)
-	plt.xlabel("Resolution (keV)")
-	plt.ylabel("Efficiency (counts/MJ)")
-	plt.title("Performance for 16.7 MeV photons")
-	plt.tight_layout()
-	plt.savefig("pareto.pdf")
+		performance_ax.legend()
+		parameter_ax.legend()
+
+	performance_ax.set_xlim(0, 800)
+	performance_ax.xaxis.set_major_locator(MultipleLocator(200))
+	performance_ax.set_yscale("log")
+	performance_ax.set_ylim(0.1, 10)
+	performance_ax.set_xlabel("Resolution (keV)")
+	performance_ax.set_ylabel("Efficiency (counts/MJ)")
+	performance_ax.set_title("Performance for 16.7 MeV photons")
+	performance_fig.tight_layout()
+	performance_fig.savefig("pareto.pdf")
+
+	parameter_ax.set_xlim(0, 150)
+	parameter_ax.set_ylim(0, 10)
+	parameter_ax.set_xlabel("Aperture distance (cm)")
+	parameter_ax.set_ylabel("Aperture radius (cm)")
+	parameter_ax.set_title("Optimal aperture locations")
+	parameter_fig.tight_layout()
+
 	plt.show()
 
 
-def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance: float, aperture_diameter: float) -> tuple[Sequence[float], Sequence[float]]:
+def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance: float, aperture_diameter: float) -> tuple[Sequence[float], Sequence[float], Sequence[tuple[float, float, float, float]]]:
 	"""
 	find the range of achievable performances for a given set of aperture parameters,
 	ignoring ion-optics and only varying foil thickness
 	"""
-	efficiencies = geomspace(0.1, 10, 11)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
 	resolutions = empty_like(efficiencies)
+	hyperparameters = []
 	with ProcessPoolExecutor(max_workers=8) as executor:
 		for i, efficiency in enumerate(efficiencies):
 			foil_thickness = optimize_foil_thickness(foil_diameter, aperture_distance, aperture_diameter, efficiency, executor)
 			resolutions[i] = calculate_resolution(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 				magnet_system_filename=None, parameters=None, executor=executor)
-	return resolutions, efficiencies
+			hyperparameters.append((foil_diameter, foil_thickness, aperture_distance, aperture_diameter))
+	return resolutions, efficiencies, hyperparameters
 
 
-def find_pareto_front_of_collimator(foil_diameter: float) -> tuple[Sequence[float], Sequence[float]]:
+def find_pareto_front_of_collimator(foil_diameter: float) -> tuple[Sequence[float], Sequence[float], Sequence[tuple[float, float, float, float]]]:
 	"""
 	find the range of achievable performances for a given foil diameter,
 	ignoring ion-optics and varying foil thickness, aperture distance, and aperture diameter
 	"""
 	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
 	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 11)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
 
-	resolutions = array(run_concurrently(
+	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_hyperparameters,
 		efficiencies, foil_diameter,
 	))
 
-	return resolutions, efficiencies
+	return resolutions, efficiencies, hyperparameters
 
 
 def find_suitable_hyperparameters(
-		efficiency: float, foil_diameter: float):
+		efficiency: float, foil_diameter: float) -> tuple[float, tuple[float, float, float, float]]:
 
 	def objective(hyperparameters: Sequence[float]) -> float:
 		aperture_distance, aperture_diameter = hyperparameters
@@ -145,10 +171,14 @@ def find_suitable_hyperparameters(
 		)
 	)
 	print(solution)
-	return solution.fun
+
+	aperture_distance, aperture_diameter = solution.x
+	foil_thickness = optimize_foil_thickness(
+		foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
+	return solution.fun, (foil_diameter, foil_thickness, aperture_distance, aperture_diameter)
 
 
-def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], Sequence[float]]:
+def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], Sequence[float], Sequence[tuple[float, float, float, float]]]:
 	"""
 	find the range of achievable performances for a given magnet system,
 	accounting for all sources of degradation and only varying foil thickness, foil diameter, and aperture diameter
@@ -161,20 +191,20 @@ def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], 
 
 	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
 	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 11)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
 
-	resolutions = array(run_concurrently(
+	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_configuration,
 		efficiencies, max_foil_diameter, aperture_distance, max_aperture_diameter, filename,
 	))
 
-	return resolutions, efficiencies
+	return resolutions, efficiencies, hyperparameters
 
 
 def find_suitable_configuration(
 		efficiency: float, max_foil_diameter: float,
 		aperture_distance: float, max_aperture_diameter: float,
-		magnet_system_filename: str):
+		magnet_system_filename: str) -> tuple[float, tuple[float, float, float, float]]:
 
 	def objective(hyperparameters: Sequence[float]) -> float:
 		foil_diameter, aperture_diameter = hyperparameters
@@ -205,7 +235,11 @@ def find_suitable_configuration(
 		)
 	)
 	print(solution)
-	return solution.fun
+
+	foil_diameter, aperture_diameter = solution.x
+	foil_thickness = optimize_foil_thickness(
+		foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
+	return solution.fun, (foil_diameter, foil_thickness, aperture_distance, aperture_diameter)
 
 
 def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwargs):
