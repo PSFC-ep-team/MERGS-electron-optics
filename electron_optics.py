@@ -241,7 +241,7 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 		with open(f"generated/{run_id}_output.txt") as file:
 			output = file.read()
 		output = re.sub(r"[\n\r]+", "\n", output)
-		if "$$$ ERROR" in output or "### ERROR" in output or len(output) <= 4:
+		if re.search(r"(###|\$\$\$|!!!|@@@|\*\*\*) ERROR", output) or len(output) <= 4:
 			print(output)
 			raise RuntimeError("COSY threw an error")
 		if "NaN" in output:

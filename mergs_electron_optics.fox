@@ -459,6 +459,10 @@ PROCEDURE elt_spectrometer;
 	central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
 	dipole_bend_angle := p_dipole_length/dipole_bend_radius*180/PI;
+	IF dipole_bend_angle>180;
+		WRITE 6 'warning; the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
+		dipole_bend_angle := 180;
+	ENDIF;
 
 	shape_in(1) := p_shape_in_1;
 	shape_in(2) := p_shape_in_2;
