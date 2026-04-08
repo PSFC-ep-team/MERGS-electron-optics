@@ -29,8 +29,10 @@ VARIABLE p_m5_length 1;
 VARIABLE p_dipole_halfwidth 1;
 VARIABLE p_dipole_length 1;
 VARIABLE p_drift_pre_bend 1;
-VARIABLE p_drift_post_bend 1;
 
+VARIABLE p_detector_position 1;
+VARIABLE p_detector_tilt 1;
+VARIABLE p_detector_curvature 1;
 VARIABLE detector_thickness 1;
 
 VARIABLE m5_required_radius 1;
@@ -41,14 +43,16 @@ VARIABLE dipole_bend_radius 1;
 VARIABLE dipole_min_bend_radius 1;
 VARIABLE dipole_max_bend_radius 1;
 VARIABLE dipole_gap_height 1;
-VARIABLE dipole_side_length 1;
 VARIABLE dipole_front_secancy 1;
 VARIABLE dipole_back_secancy 1;
 VARIABLE dipole_power 1;
 
+VARIABLE current_map_position 1;
 VARIABLE input_rays 1 1000 8;
 VARIABLE output_rays 1 1000 8;
 VARIABLE num_rays 1;
+VARIABLE num_characteristic_rays 1;
+VARIABLE num_dispersive_rays 1;
 
 VARIABLE beam_min_x 1;
 VARIABLE beam_max_x 1;
@@ -59,11 +63,12 @@ VARIABLE beam_width 1;
 VARIABLE beam_height 1;
 
 VARIABLE position 1 3;
+VARIABLE dispersion 1 3;
 VARIABLE resolution 1 3;
 VARIABLE focal_plane_tilt 1;
 VARIABLE focal_plane_bend 1;
-VARIABLE focal_plane_left 1;
-VARIABLE focal_plane_right 1;
+VARIABLE detector_left 1;
+VARIABLE detector_right 1;
 VARIABLE focal_plane_length 1;
 VARIABLE focal_plane_height 1;
 VARIABLE system_length 1;
@@ -167,12 +172,35 @@ ENDPROCEDURE;
 {============ MATH FUNCTIONS ============}
 
 { fill out output_rays based on input_rays and the current map }
-PROCEDURE transform_rays;
+PROCEDURE transform_rays project_to_detector;
 	VARIABLE i_ray 1;
 	VARIABLE i_coord 1;
 	VARIABLE input_ray 1 8;
 	VARIABLE output_ray 1 8;
 	VARIABLE map 10000 8;
+	VARIABLE momentum_ratio 1;
+	VARIABLE x0 1;
+	VARIABLE z0 1;
+	VARIABLE a 1;
+	VARIABLE b 1;
+	VARIABLE correction_factor 1;
+	VARIABLE sin_yaw 1;
+	VARIABLE cos_yaw 1;
+	VARIABLE yaw 1;
+	VARIABLE sin_pitch 1;
+	VARIABLE cos_pitch 1;
+	VARIABLE tan_pitch 1;
+	VARIABLE sin_tilt 1;
+	VARIABLE cos_tilt 1;
+	VARIABLE coef_A 1;
+	VARIABLE coef_B 1;
+	VARIABLE coef_C 1;
+	VARIABLE distance 1;
+	VARIABLE x 1;
+	VARIABLE z 1;
+	VARIABLE q 1;
+	VARIABLE detector_rotation 1;
+	VARIABLE relative_yaw 1;
 
 	{ save the map to a variable }
 	SM map;
@@ -181,7 +209,71 @@ PROCEDURE transform_rays;
 		LOOP i_coord 1 8;
 			input_ray(i_coord) := input_rays(i_ray,i_coord);
 		ENDLOOP;
+
+		{ apply the map to get COSY's idea of an output ray }
 		POLVAL 1 map TWOND input_ray TWOND output_ray TWOND ;
+
+		IF project_to_detector;
+
+			IF current_map_position<0;
+				WRITE 6 'error; current map position being negative indicates that we havent fully defined the spectrometer yet, so it doesnt make sense for me to project rays forward to the detector.';
+				QUIT 1;
+			ENDIF;
+
+			{ correct for the position and shape of the detector }
+			momentum_ratio := 1 + input_ray(6)/(1 + 0.5110/central_energy);
+			x0 := output_ray(1);
+			z0 := current_map_position - p_detector_position;
+			a := output_ray(2) / momentum_ratio;
+			b := output_ray(4) / momentum_ratio;
+			{ fix COSY's mistake if it gives you nonphysical angles }
+			IF SQRT(a^2 + b^2)>0.9;
+				correction_factor := 0.9/SQRT(a^2 + b^2);
+				a := a*correction_factor;
+				b := b*correction_factor;
+			ENDIF;
+			sin_yaw := a/SQRT(1 - b^2);  {yaw is the angle you see when looking along the y-axis}
+			cos_yaw := SQRT(1 - sin_yaw^2);
+			yaw := ASIN(sin_yaw);
+			sin_pitch := b;  {pitch is the angle relative to the x-z-plane}
+			cos_pitch := SQRT(1 - sin_pitch^2);
+			tan_pitch := sin_pitch/cos_pitch;
+			sin_tilt := SIN(p_detector_tilt);
+			cos_tilt := COS(p_detector_tilt);
+			coef_A := p_detector_curvature;
+			coef_B := cos_yaw*cos_tilt - sin_yaw*sin_tilt - p_detector_curvature*(z0*cos_yaw + x0*sin_yaw);
+			coef_C := 2*(x0*sin_tilt - z0*cos_tilt) + p_detector_curvature*(x0^2 + z0^2);
+			IF ABS(coef_A*coef_C)<0.000000000001*coef_B^2;
+				distance := coef_C/(2*coef_B);
+			ELSEIF coef_A*coef_C<coef_B^2;
+				distance := (coef_B - SQRT(coef_B^2 - coef_A*coef_C))/coef_A;
+			ELSEIF TRUE;
+				distance := coef_B/coef_A;  { if the ray doesn't hit the arc, just fudge it }
+			ENDIF;
+			x := x0 + distance*sin_yaw;
+			z := z0 + distance*cos_yaw;
+			{set x to the distance along the detector at which it strikes it}
+			q := x*cos_tilt + z*sin_tilt;
+			IF p_detector_curvature=0;
+				output_ray(1) := q;
+				detector_rotation := 0;
+			ELSEIF ABS(q*p_detector_curvature)<1;  { convert from perpendicular distance to arc-distance if applicable }
+				output_ray(1) := ASIN(q*p_detector_curvature)/p_detector_curvature;
+				detector_rotation := ASIN(q*p_detector_curvature);
+			ELSEIF TRUE;
+				output_ray(1) := PI/2/p_detector_curvature;  { if the ray doesn't hit the arc, just fudge it }
+				detector_rotation := PI/2;
+			ENDIF;
+			{modify a to be relative to the detector's local normal vector}
+			relative_yaw := yaw + p_detector_tilt + detector_rotation;
+			output_ray(2) := SQRT(1 - b^2) * SIN(relative_yaw) * momentum_ratio;
+			{modify y depending on how long it takes to strike the detector}
+			output_ray(3) := output_ray(3) + distance*tan_pitch;
+			{set time-of-flight to zero as a reminder that I'm not calculating the time-of-flight in COSY's bizzare units}
+			output_ray(5) := 0;
+
+		ENDIF;
+
 		LOOP i_coord 1 8;
 			output_rays(i_ray,i_coord) := output_ray(i_coord);
 		ENDLOOP;
@@ -189,19 +281,19 @@ PROCEDURE transform_rays;
 ENDPROCEDURE;
 
 { set beam_width and beam_height to the instantaneous ray range }
-PROCEDURE calculate_beam_size include_all_rays;
+PROCEDURE calculate_beam_size project_to_detector;
 	VARIABLE i_ray 1;
 	VARIABLE ray_x 1;
 	VARIABLE ray_y 1;
 	
-	transform_rays;
+	transform_rays project_to_detector;
 
 	beam_min_x := 1e10;
 	beam_max_x := -1e10;
 	beam_min_y := 1e10;
 	beam_max_y := -1e10;
 	beam_max_r := -1e10;
-	LOOP i_ray 1 num_rays;
+	LOOP i_ray 1 num_characteristic_rays;
 		ray_x := output_rays(i_ray,1);
 		ray_y := output_rays(i_ray,3);
 		{ for y, look at all ray energies }
@@ -211,17 +303,14 @@ PROCEDURE calculate_beam_size include_all_rays;
 		IF ray_y>beam_max_y;
 			beam_max_y := ray_y;
 		ENDIF;
-		{ for x, look at only central rays unless include_all_rays is true }
-		IF include_all_rays+((input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0));
-			IF ray_x<beam_min_x;
-				beam_min_x := ray_x;
-			ENDIF;
-			IF ray_x>beam_max_x;
-				beam_max_x := ray_x;
-			ENDIF;
-			IF SQRT(ray_x^2+ray_y^2)>beam_max_r;
-				beam_max_r := SQRT(ray_x^2+ray_y^2);
-			ENDIF;
+		IF ray_x<beam_min_x;
+			beam_min_x := ray_x;
+		ENDIF;
+		IF ray_x>beam_max_x;
+			beam_max_x := ray_x;
+		ENDIF;
+		IF SQRT(ray_x^2+ray_y^2)>beam_max_r;
+			beam_max_r := SQRT(ray_x^2+ray_y^2);
 		ENDIF;
 	ENDLOOP;
 
@@ -229,54 +318,33 @@ PROCEDURE calculate_beam_size include_all_rays;
 	beam_height := beam_max_y - beam_min_y;
 ENDPROCEDURE;
 
-{ determine the distance from the last element to the point of best first-order focus }
-PROCEDURE calculate_final_drift;
-	VARIABLE first_derivative 1;
-	VARIABLE twoth_derivative 1;
-	VARIABLE i_energy 1;
-	VARIABLE momentum_ratio 1;
-	VARIABLE count 1;
-	VARIABLE sum_a 1;
-	VARIABLE sum_x 1;
-	VARIABLE sum_a2 1;
-	VARIABLE sum_ax 1;
-	VARIABLE sum_x2 1;
-	VARIABLE i_ray 1;
-	VARIABLE x 1;
-	VARIABLE a 1;
+{ determine the detector tilt angle and curvature that best goes with this design }
+{ this function assumes the map is currently set for the end of the last magnet, }
+{ and will edit the map to be defined at the center of the detector instead }
+PROCEDURE optimize_detector;
+	{ move the map to the first-order-focus position to simplify the math }
+	p_detector_position := current_map_position - ME(1,2)/ME(2,2);
+	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
+	current_map_position := p_detector_position;
 
-	transform_rays;
+	{ start by making the detector coincident with the image plane }
+	p_detector_tilt := ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)));
+	p_detector_curvature :=
+		2*ME(1,1)*(
+			ME(1,26)*(ME(1,66) - ME(1,26)*ME(2,6)*ME(1,1)) -
+			ME(1,6)*(ME(1,266) - ME(2,26)*ME(1,26)*ME(1,1)))
+		/(ME(1,6)^2 + (ME(1,26)*ME(1,1))^2)^1.5;
 
-	first_derivative := 0;
-	twoth_derivative := 0;
-	LOOP i_energy 1 num_energies;
-		momentum_ratio := 1 + beam_d_energies(i_energy)/(1 + 0.5110/central_energy);
-		count := 0;
-		sum_a := 0;
-		sum_x := 0;
-		sum_a2 := 0;
-		sum_ax := 0;
-		sum_x2 := 0;
-		LOOP i_ray 1 num_rays;
-			IF input_rays(i_ray,6)=beam_d_energies(i_energy);
-				x := output_rays(i_ray,1);
-				a := output_rays(i_ray,2) / momentum_ratio;
-				count := count + 1;
-				sum_a := sum_a + a;
-				sum_x := sum_x + x;
-				sum_a2 := sum_a2 + a^2;
-				sum_ax := sum_ax + a*x;
-				sum_x2 := sum_x2 + x^2;
-			ENDIF;
-		ENDLOOP;
-		first_derivative := first_derivative + sum_ax/count - sum_a*sum_x/count^2;
-		twoth_derivative := twoth_derivative + sum_a2/count - sum_a^2/count^2;
-	ENDLOOP;
+	{ TO DO: fancier optimization }
 
-	p_drift_post_bend := -first_derivative/twoth_derivative;
-	IF p_drift_post_bend<0;
-		p_drift_post_bend := 0;
-	ENDIF;
+	{ apply reasonable limits }
+	p_detector_position := MAX(0, MIN(2, p_detector_position));  { positive, and no more than 3 m }
+	p_detector_tilt := MAX(-1, MIN(1, p_detector_tilt));  { +/- 1 rad }
+	p_detector_curvature := MAX(-10, MIN(10, p_detector_curvature));  { +/- 10 rad/m }
+
+	{ adjust the mapped location in case we moved the focal plane }
+	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
+	current_map_position := p_detector_position;
 ENDPROCEDURE;
 
 { calculate key performance metrics of the map }
@@ -291,26 +359,31 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE i_energy 1;
 	VARIABLE i_ray 1;
 	VARIABLE spot_size 1;
-	VARIABLE dispersion 1;
+	VARIABLE x_left 1;
+	VARIABLE x_right 1;
 	VARIABLE numerator 1;
 	VARIABLE denominator 1;
 	VARIABLE dipole_min_radius 1;
 	VARIABLE dipole_max_radius 1;
 	VARIABLE z_arc 1;
 	VARIABLE z_face 1;
+	VARIABLE detector_left_size 1;
+	VARIABLE detector_right_size 1;
 	VARIABLE vertices 2 5;
 	VARIABLE i 1;
 	VARIABLE j 1;
 
-	transform_rays;
+	{ first look at the rays to get the resolution }
+	transform_rays TRUE;
 
 	LOOP i_energy 1 num_energies;
 		d_energy := beam_d_energies(i_energy);
 		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+		{ calculate the width of the beamspot at each energy }
 		count := 0;
 		sum_x := 0;
 		sum_x2 := 0;
-		LOOP i_ray 1 num_rays;
+		LOOP i_ray 1 num_characteristic_rays;
 			IF input_rays(i_ray,6)=d_energy;
 				LOOP z -detector_thickness/2 detector_thickness/2 detector_thickness;
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
@@ -320,10 +393,19 @@ PROCEDURE evaluate_spectrometer;
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
+		{ calculate the dispersion at each energy }
+		LOOP i_ray num_characteristic_rays+1 num_characteristic_rays+num_dispersive_rays;
+			IF input_rays(i_ray,6)=d_energy-0.01;
+				x_left := output_rays(i_ray,1);
+			ELSEIF input_rays(i_ray,6)=d_energy+0.01;
+				x_right := output_rays(i_ray,1);
+			ENDIF;
+		ENDLOOP;
+		{ compute resolution }
 		position(i_energy) := sum_x/count; {m}
 		spot_size := SQRT(sum_x2/count - (sum_x/count)^2);
-		dispersion := ME(1,6) + 2*ME(1,66)*d_energy + 3*ME(1,666)*d_energy^2 + 4*ME(1,6666)*d_energy^3 + 5*ME(1,66666)*d_energy^4;
-		resolution(i_energy) := spot_size*2.355/dispersion; {(relative)}
+		dispersion(i_energy) := (x_right - x_left)/(0.02*central_energy); {m/MeV}
+		resolution(i_energy) := spot_size*2.355/dispersion(i_energy); {MeV}
 	ENDLOOP;
 
 	focal_plane_tilt := ATAN(-ME(1,26)/ME(2,2)/ME(1,6)); {rad}
@@ -332,9 +414,9 @@ PROCEDURE evaluate_spectrometer;
 	denominator := (ME(1,6)^2+ME(1,1)^2*ME(1,26)^2)^1.5;
 	focal_plane_bend := numerator/denominator; {m^-1}
 
-	calculate_beam_size FALSE;
-	focal_plane_left := beam_max_x;
-	focal_plane_right := -beam_min_x;
+	calculate_beam_size TRUE;
+	detector_left := beam_max_x;
+	detector_right := -beam_min_x;
 	focal_plane_length := beam_width;
 	focal_plane_height := beam_height;
 
@@ -351,16 +433,23 @@ PROCEDURE evaluate_spectrometer;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
-	system_length := p_m5_length + p_drift_pre_bend + p_dipole_length + p_drift_post_bend; {m}
+	system_length := p_m5_length + p_drift_pre_bend + p_dipole_length + p_detector_position; {m}
+	IF p_detector_curvature#0;
+		detector_left_size := SIN(detector_left*p_detector_curvature)/p_detector_curvature;
+		detector_right_size := SIN(detector_right*p_detector_curvature)/p_detector_curvature;
+	ELSEIF TRUE;
+		detector_left_size := detector_left;
+		detector_right_size := detector_right;
+	ENDIF;
 	vertices(1) := 0 & 0; {foil}
 	vertices(2) := p_m5_length + p_drift_pre_bend &
 	               -dipole_bend_radius + dipole_max_radius; {magnet front left}
 	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(dipole_bend_angle,90)/180*PI) &
 	               -dipole_bend_radius + dipole_max_radius*COS(MIN(dipole_bend_angle,90)/180*PI); {magnet back left}
-	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_drift_post_bend*COS(dipole_bend_angle/180*PI) + focal_plane_left*SIN(dipole_bend_angle/180*PI) &
-	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_drift_post_bend*SIN(dipole_bend_angle/180*PI) + focal_plane_left*COS(dipole_bend_angle/180*PI);
-	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_drift_post_bend*COS(dipole_bend_angle/180*PI) - focal_plane_right*SIN(dipole_bend_angle/180*PI) &
-	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_drift_post_bend*SIN(dipole_bend_angle/180*PI) - focal_plane_right*COS(dipole_bend_angle/180*PI);
+	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) + detector_left_size*SIN(dipole_bend_angle/180*PI) &
+	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) + detector_left_size*COS(dipole_bend_angle/180*PI);
+	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) - detector_right_size*SIN(dipole_bend_angle/180*PI) &
+	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) - detector_right_size*COS(dipole_bend_angle/180*PI);
 	system_depth := 0;
 	system_width := 0;
 	system_diagonal := 0;
@@ -396,6 +485,9 @@ PROCEDURE gen_rays;
 	VARIABLE x_angle 1;
 	VARIABLE y_angle 1;
 
+	CLEAR_RAYS;
+
+	{ characteristic rays }
 	LOOP i_energy 1 num_energies;
 		d_energy := beam_d_energies(i_energy);
 		color := beam_colors(i_energy);
@@ -422,14 +514,24 @@ PROCEDURE gen_rays;
 					x_foil := 0;
 					y_foil := 0;
 				ENDIF;
-				x_angle := ATAN((x_aperture-x_foil)/drift_pre_aperture);
-				y_angle := ATAN((y_aperture-y_foil)/drift_pre_aperture);
-				SET_RAY x_foil momentum_ratio*SIN(x_angle)
-				        y_foil momentum_ratio*SIN(y_angle)
+				x_angle := (x_aperture-x_foil)/drift_pre_aperture;
+				y_angle := (y_aperture-y_foil)/drift_pre_aperture;
+				SET_RAY x_foil momentum_ratio*x_angle
+				        y_foil momentum_ratio*y_angle
 				        0 d_energy 0 0 color;
 			ENDLOOP;
 		ENDLOOP;
 	ENDLOOP;
+	num_characteristic_rays := num_rays;
+
+	{ dispersive rays }
+	LOOP i_energy 1 num_energies;
+		d_energy := beam_d_energies(i_energy);
+		color := beam_colors(i_energy);
+		SET_RAY 0 0 0 0 0 d_energy-0.01 0 0 color;
+		SET_RAY 0 0 0 0 0 d_energy+0.01 0 0 color;
+	ENDLOOP;
+	num_dispersive_rays := num_rays-num_characteristic_rays;
 ENDPROCEDURE;
 
 PROCEDURE config_spectrometer;
@@ -478,6 +580,7 @@ PROCEDURE elt_spectrometer;
 	shape_zero(4) := 0;
 
 	UNITY_MAP;
+	current_map_position := -1;
 
 	ELT_APERTURE MAX(foil_width, foil_height)/2;
 
@@ -487,12 +590,12 @@ PROCEDURE elt_spectrometer;
 
 	ELT_MULTIPOLE_5 p_m5_length p_m5_quad_field p_m5_hex_field 0 0 0 p_m5_radius;
 
-	calculate_beam_size TRUE;
+	calculate_beam_size FALSE;
 	m5_required_radius := beam_max_r;
 
 	ELT_DRIFT_LENGTH p_drift_pre_bend;
 
-	calculate_beam_size TRUE;
+	calculate_beam_size FALSE;
 	dipole_gap_height := beam_height;
 	dipole_min_bend_radius := dipole_bend_radius+beam_min_x;
 	dipole_max_bend_radius := dipole_bend_radius+beam_max_x;
@@ -501,15 +604,14 @@ PROCEDURE elt_spectrometer;
 		dipole_bend_radius dipole_bend_angle p_dipole_halfwidth
 		shape_zero shape_in shape_out 4;
 
-	calculate_beam_size TRUE;
+	calculate_beam_size FALSE;
 	dipole_gap_height := MAX(dipole_gap_height, beam_height);
 	dipole_min_bend_radius := MIN(dipole_min_bend_radius, dipole_bend_radius+beam_min_x);
 	dipole_max_bend_radius := MAX(dipole_max_bend_radius, dipole_bend_radius+beam_max_x);
 
-	calculate_final_drift;
-	ELT_DRIFT_LENGTH p_drift_post_bend;
+	ELT_DRIFT_LENGTH p_detector_position;
+	current_map_position := p_detector_position;
 
-	ELT_APERTURE 0.01; {for scoping hodoscope size}
 ENDPROCEDURE;
 
 PROCEDURE main;
@@ -547,23 +649,25 @@ PROCEDURE main;
 	drift_pre_aperture := 0.40;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.031300645351772766; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.010464139607100739; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.18372336807884343; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.18921317749993172; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.2433636778316083; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.1442401897961509; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.3422226052598316; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
-	p_dipole_halfwidth := 0.20;
-	p_drift_pre_bend := 0.16010588624398012; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_drift_post_bend := 0; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
-	p_shape_in_1 := 0.3761116761653014; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.058832590355028; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.714098827309424;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_dipole_length := 0.17803132391107618; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_halfwidth := 0.15;
+	p_drift_pre_bend := 0.050000000002240384; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.5846344972302051; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 7.649037707008663; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 23.556181322074;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
-	p_shape_out_1 := 0.31334910601715915; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -2.552883925974445; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 3.1579691150692075; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := -0.23929493316622888; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -3.3958492735610855; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 4.311090537362007; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
+	p_detector_position := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
+	p_detector_tilt := 0; {{CONSTRAINT |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_detector_curvature := 0; {{CONSTRAINT |min=-10 |max=0 |bias=1/0.5 |unit=rad/m}}
 
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
@@ -571,9 +675,10 @@ PROCEDURE main;
 	{ ---- spectrometer definition ---- }
 
 	UNITY_MAP;
-	CLEAR_RAYS;
 	gen_rays;
+
 	elt_spectrometer;
+	optimize_detector;
 	evaluate_spectrometer;
 
 	WRITE out 'foil_width := '&SF(foil_width, '(G21.15)')&';';
@@ -589,7 +694,6 @@ PROCEDURE main;
 	WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G21.15)')&';';
 	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G21.15)')&';';
 	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G21.15)')&';';
-	WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G21.15)')&';';
 	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G21.15)')&';';
 	WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G21.15)')&';';
 	WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G21.15)')&';';
@@ -598,20 +702,22 @@ PROCEDURE main;
 	WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G21.15)')&';';
 	WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G21.15)')&';';
 	WRITE out 'p_shape_out_4 := '&SF(p_shape_out_4, '(G21.15)')&';';
+	WRITE out 'p_detector_position := '&SF(p_detector_position, '(G21.15)')&';';
+	WRITE out 'p_detector_tilt := '&SF(p_detector_tilt, '(G21.15)')&';';
+	WRITE out 'p_detector_curvature := '&SF(p_detector_curvature, '(G21.15)')&';';
 	WRITE out '';
 	WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G21.15)')&';';
 	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G21.15)')&';';
 	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G21.15)')&';';
 	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G21.15)')&';';
 	WRITE out 'dipole_gap_height := '&SF(dipole_gap_height, '(G21.15)')&';';
-	WRITE out 'hodoscope_right := '&SF(focal_plane_right, '(G21.15)')&';';
-	WRITE out 'hodoscope_left := '&SF(focal_plane_left, '(G21.15)')&';';
+	WRITE out 'detector_right := '&SF(detector_right, '(G21.15)')&';';
+	WRITE out 'detector_left := '&SF(detector_left, '(G21.15)')&';';
 
 	{ ---- graphic output ---- }
 
 	IF output_mode#0;
 		UNITY_MAP;
-		CLEAR_RAYS;
 		gen_rays;
 
 		PTY y_scale;
@@ -642,9 +748,6 @@ PROCEDURE main;
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' p_dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
-	WRITE out 'magnification:' ME(1,1) 'x';
-	WRITE out 'focus:' ME(1,2)*100 'cm/rad';
-	WRITE out 'dispersion:' ME(1,6)/central_energy*100 'cm/MeV';
 	WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg'; {{CONSTRAINT |min=-5 |max=5 |bias=0 |unit=deg}}
 	WRITE out 'focal plane bend:' focal_plane_bend '/m';
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=30 |max=inf |bias=-1/1.0 |unit=cm}}
@@ -659,10 +762,15 @@ PROCEDURE main;
 		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
 		WRITE out position(i)*100 'cm';
 	ENDLOOP;
+	WRITE out 'dispersion:';
+	LOOP i 1 num_energies;
+		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out dispersion(i)*100 'cm/MeV';
+	ENDLOOP;
 	WRITE out 'algebraic resolution:';
 	LOOP i 1 num_energies;
 		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
-		WRITE out resolution(i)*central_energy*1000 'keV';
+		WRITE out resolution(i)*1000 'keV';
 	ENDLOOP;
 
 	WRITE out '';

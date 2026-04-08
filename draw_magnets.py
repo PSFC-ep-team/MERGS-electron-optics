@@ -9,34 +9,36 @@ FILE_TO_OPTIMIZE = "mergs_ion_optics"
 PARAMETER_STRING = """
 foil_width := 0.300000000000000E-01;
 foil_height := 0.300000000000000E-01;
-aperture_width := 0.400000000000000E-01;
-aperture_height := 0.400000000000000E-01;
-p_m5_quad_field := 0.313006453517728E-01;
+aperture_width := 0.300000000000000E-01;
+aperture_height := 0.300000000000000E-01;
+p_m5_quad_field := 0.104641396071007E-01;
 p_m5_hex_field :=  0.00000000000000;
-p_dipole_field := 0.183723368078843;
-p_m5_radius := 0.473032943749829E-01;
-p_m5_length := 0.189213177499932;
-p_dipole_halfwidth := 0.200000000000000;
-p_dipole_length := 0.342222605259832;
-drift_pre_aperture := 0.400000000000000;
-p_drift_pre_bend := 0.160105886243980;
-p_drift_post_bend := 0.644136165297211;
-p_shape_in_1 := 0.376111676165301;
-p_shape_in_2 :=  5.05883259035503;
-p_shape_in_3 :=  11.7140988273094;
+p_dipole_field := 0.243363677831608;
+p_m5_radius := 0.360600474490377E-01;
+p_m5_length := 0.144240189796151;
+p_dipole_halfwidth := 0.150000000000000;
+p_dipole_length := 0.178031323911076;
+drift_pre_aperture := 0.500000000000000;
+p_drift_pre_bend := 0.500000000022404E-01;
+p_shape_in_1 := 0.584634497230205;
+p_shape_in_2 :=  7.64903770700866;
+p_shape_in_3 :=  23.5561813220740;
 p_shape_in_4 :=  0.00000000000000;
-p_shape_out_1 := 0.313349106017159;
-p_shape_out_2 := -2.55288392597445;
-p_shape_out_3 :=  3.15796911506921;
+p_shape_out_1 := -.239294933166229;
+p_shape_out_2 := -3.39584927356109;
+p_shape_out_3 :=  4.31109053736201;
 p_shape_out_4 :=  0.00000000000000;
+p_detector_position := 0.484034595371268;
+p_detector_tilt := 0.493324206669187E-01;
+p_detector_curvature := -1.55913774508012;
 
-dipole_bend_angle :=  77.0829309201832;
-dipole_max_bend_radius := 0.446551196213342;
-dipole_central_bend_radius := 0.254374226580243;
-dipole_min_bend_radius := 0.168657172863990;
-dipole_gap_height := 0.735211257214391E-01;
-hodoscope_right := 0.576722873792383;
-hodoscope_left := 0.198583421419653;
+dipole_bend_angle :=  53.1174611978831;
+dipole_max_bend_radius := 0.267018559923633;
+dipole_central_bend_radius := 0.192035599051517;
+dipole_min_bend_radius := 0.129949860069174;
+dipole_gap_height := 0.502744967098224E-01;
+detector_right := 0.183703710526201;
+detector_left := 0.101099074847128;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -96,12 +98,14 @@ def draw_magnets():
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
-		parameters["p_drift_post_bend"],
+		parameters["p_detector_position"],
 	)
-	draw_plane(
+	draw_detector(
 		paths, x, y, θ,
-		parameters["hodoscope_left"],
-		parameters["hodoscope_right"],
+		parameters["p_detector_tilt"],
+		parameters["p_detector_curvature"],
+		parameters["detector_left"],
+		parameters["detector_right"],
 	)
 
 	write_SVG("picture.svg", paths)
@@ -127,6 +131,31 @@ def draw_plane(
 		("L", [x - right*sin(θ), y + right*cos(θ)]),
 	]
 	graphic.append(Path(klass="plane", commands=line, zorder=1))
+
+
+def draw_detector(
+		graphic: List[Path], x: float, y: float, θ: float, tilt: float, curvature: float, left: float, right: float
+) -> None:
+	if curvature == 0:
+		draw_plane(graphic, x, y, θ + tilt, left, right)
+
+	R = 1/curvature
+	x_center = x + R*cos(θ + tilt)
+	y_center = y + R*sin(θ + tilt)
+	left_angle = θ + tilt + pi + curvature*left
+	right_angle = θ + tilt + pi - curvature*right
+	arc = [
+		("M", [x_center + R*cos(left_angle), y_center + R*sin(left_angle)]),
+		("A", [
+			R, R, 0, 1 if curvature*left > pi else 0, 1 if curvature < 0 else 0,
+			x, y,
+		]),
+		("A", [
+			R, R, 0, 1 if curvature*right > pi else 0, 1 if curvature < 0 else 0,
+			x_center + R*cos(right_angle), y_center + R*sin(right_angle),
+		]),
+	]
+	graphic.append(Path(klass="plane", commands=arc, zorder=1))
 
 
 def draw_drift_length(
