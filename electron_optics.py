@@ -203,12 +203,12 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 		parameter_vector = [parameter.default for parameter in script.parameters]
 	assert len(parameter_vector) == len(script.parameters)
 
-	if run_id is None:
-		run_id = f"proc{multiprocessing.current_process().pid}"
-
-	graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
 	run_key = tuple(parameter_vector)
 	if cache is None or run_key not in cache:
+		if run_id is None:
+			run_id = f"proc{multiprocessing.current_process().pid}"
+		graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
+
 		modified_content = script.content
 		# turn off all graphics output
 		modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)

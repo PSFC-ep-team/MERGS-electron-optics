@@ -47,10 +47,10 @@ VARIABLE dipole_front_secancy 1;
 VARIABLE dipole_back_secancy 1;
 VARIABLE dipole_power 1;
 
-VARIABLE current_map_position 1;
-VARIABLE input_rays 1 500 8;
-VARIABLE output_rays 1 500 8;
-VARIABLE num_rays 1;
+VARIABLE current_map_position 1;  { tracks the distance between the plane where the map is defined and the last magnet surface }
+VARIABLE input_rays 1 500 8;  { tracks the rays that have been defined with SR }
+VARIABLE output_rays 1 500 8;  { tracks the defined rays with the map applied }
+VARIABLE num_rays 1;  { tracks the size of input_rays and output_rays }
 VARIABLE num_characteristic_rays 1;
 VARIABLE num_dispersive_rays 1;
 
@@ -66,8 +66,6 @@ VARIABLE ray_error 1 1000;
 VARIABLE position 1 3;
 VARIABLE dispersion 1 3;
 VARIABLE resolution 1 3;
-VARIABLE focal_plane_tilt 1;
-VARIABLE focal_plane_bend 1;
 VARIABLE detector_left 1;
 VARIABLE detector_right 1;
 VARIABLE focal_plane_length 1;
@@ -111,6 +109,7 @@ ENDPROCEDURE;
 { Unity map / Set the transfer map to the identity. }
 PROCEDURE UNITY_MAP;
 	UM; {uninitialize map}
+	current_map_position := 0;
 ENDPROCEDURE;
 
 { Create an aperture element with given radius. }
@@ -120,10 +119,12 @@ ENDPROCEDURE;
 { Create an element with no field and given length. }
 PROCEDURE ELT_DRIFT_LENGTH length;
 	DL length; {drift length}
+	current_map_position := current_map_position + length;
 ENDPROCEDURE;
 { Create a fifth order multipole magnet. }
 PROCEDURE ELT_MULTIPOLE_5 length b_quad_field b_hex_field b_oct b_dec b_dodec bore;
 	M5 length b_quad_field b_hex_field b_oct b_dec b_dodec bore;
+	current_map_position := 0;
 ENDPROCEDURE;
 {
 	Create a combined function bending magnet with given radius and
@@ -135,6 +136,7 @@ ENDPROCEDURE;
 }
 PROCEDURE ELT_BENDING radius angle aperture N shape_in shape_out len;
 	MC radius angle aperture N shape_in shape_out len; {makes a bending magnet}
+	current_map_position := 0;
 ENDPROCEDURE;
 
 { Set the fringe fields to the most accurate version. }
@@ -215,11 +217,6 @@ PROCEDURE transform_rays project_to_detector;
 		POLVAL 1 map TWOND input_ray TWOND output_ray TWOND ;
 
 		IF project_to_detector;
-
-			IF current_map_position<0;
-				WRITE 6 'error; current map position being negative indicates that we havent fully defined the spectrometer yet, so it doesnt make sense for me to project rays forward to the detector.';
-				QUIT 1;
-			ENDIF;
 
 			{ correct for the position and shape of the detector }
 			momentum_ratio := 1 + input_ray(6)/(1 + 0.5110/central_energy);
@@ -319,8 +316,8 @@ PROCEDURE calculate_beam_size project_to_detector;
 	beam_height := beam_max_y - beam_min_y;
 ENDPROCEDURE;
 
-{ calculate key performance metrics of the map }
-PROCEDURE evaluate_spectrometer;
+{ calculate the ray errors in each beam }
+PROCEDURE calculate_resolution;
 	VARIABLE momentum_ratio 1;
 	VARIABLE x 1;
 	VARIABLE z 1;
@@ -333,17 +330,6 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE spot_size 1;
 	VARIABLE x_left 1;
 	VARIABLE x_right 1;
-	VARIABLE numerator 1;
-	VARIABLE denominator 1;
-	VARIABLE dipole_min_radius 1;
-	VARIABLE dipole_max_radius 1;
-	VARIABLE z_arc 1;
-	VARIABLE z_face 1;
-	VARIABLE detector_left_size 1;
-	VARIABLE detector_right_size 1;
-	VARIABLE vertices 2 5;
-	VARIABLE i 1;
-	VARIABLE j 1;
 
 	{ first look at the rays to get the resolution }
 	transform_rays TRUE;
@@ -387,12 +373,22 @@ PROCEDURE evaluate_spectrometer;
 		{ compute resolution }
 		resolution(i_energy) := SQRT(variance)*2.355/dispersion(i_energy); {MeV}
 	ENDLOOP;
+ENDPROCEDURE;
 
-	focal_plane_tilt := ATAN(-ME(1,26)/ME(2,2)/ME(1,6)); {rad}
+{ calculate key performance metrics of the map }
+PROCEDURE evaluate_spectrometer;
+	VARIABLE x 1;
+	VARIABLE dipole_min_radius 1;
+	VARIABLE dipole_max_radius 1;
+	VARIABLE z_arc 1;
+	VARIABLE z_face 1;
+	VARIABLE detector_left_size 1;
+	VARIABLE detector_right_size 1;
+	VARIABLE vertices 2 5;
+	VARIABLE i 1;
+	VARIABLE j 1;
 
-	numerator := ME(1,1)*(ME(1,6)*ME(1,266)-ME(1,26)*(ME(1,66)+2*ME(1,6)*ME(1,1)*ME(2,26)));
-	denominator := (ME(1,6)^2+ME(1,1)^2*ME(1,26)^2)^1.5;
-	focal_plane_bend := numerator/denominator; {m^-1}
+	calculate_resolution;
 
 	calculate_beam_size TRUE;
 	detector_left := beam_max_x;
@@ -537,12 +533,12 @@ ENDPROCEDURE;
 { and will edit the map to be defined at the center of the detector instead }
 PROCEDURE optimize_detector;
 	VARIABLE objective 1;
+	VARIABLE num_iterations 1;
 	{ move the map to the first-order-focus position to simplify the math }
-	p_detector_position := current_map_position - ME(1,2)/ME(2,2);
-	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
-	current_map_position := p_detector_position;
+	ELT_DRIFT_LENGTH -ME(1,2)/ME(2,2);
 
 	{ start by making the detector coincident with the image plane }
+	p_detector_position := current_map_position;
 	p_detector_tilt := ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)));
 	p_detector_curvature :=
 		2*ME(1,1)*(
@@ -552,7 +548,7 @@ PROCEDURE optimize_detector;
 
 	{ do LM optimization to get the best possible resolution }
 	FIT p_detector_position p_detector_tilt p_detector_curvature;
-		evaluate_spectrometer;
+		calculate_resolution;
 		objective := resolution(1)^2+resolution(2)^2+resolution(3)^2;
 	ENDFIT 1e-6 100 4 objective;
 
@@ -563,7 +559,6 @@ PROCEDURE optimize_detector;
 
 	{ adjust the mapped location in case we moved the focal plane }
 	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
-	current_map_position := p_detector_position;
 ENDPROCEDURE;
 
 PROCEDURE elt_spectrometer;
@@ -594,7 +589,6 @@ PROCEDURE elt_spectrometer;
 	shape_zero(4) := 0;
 
 	UNITY_MAP;
-	current_map_position := -1;
 
 	ELT_APERTURE MAX(foil_width, foil_height)/2;
 
@@ -624,7 +618,6 @@ PROCEDURE elt_spectrometer;
 	dipole_max_bend_radius := MAX(dipole_max_bend_radius, dipole_bend_radius+beam_max_x);
 
 	ELT_DRIFT_LENGTH p_detector_position;
-	current_map_position := p_detector_position;
 
 ENDPROCEDURE;
 
@@ -762,8 +755,6 @@ PROCEDURE main;
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' p_dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
-	WRITE out 'focal plane tilt:' focal_plane_tilt*180/PI 'deg'; {{CONSTRAINT |min=-5 |max=5 |bias=0 |unit=deg}}
-	WRITE out 'focal plane bend:' focal_plane_bend '/m';
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=30 |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/2.0 |unit=cm}}
 	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
