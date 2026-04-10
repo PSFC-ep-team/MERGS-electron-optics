@@ -571,7 +571,7 @@ PROCEDURE optimize_detector;
 	{ calculate the residuals at the initial point }
 	calculate_resolution;
 	cost := 0;
-	LOOP i_ray 1 num_characteristic_rays;
+	LOOP i_ray 1 2*num_characteristic_rays;
 		cost := cost + 0.5*ray_error(i_ray)^2;
 	ENDLOOP;
 
@@ -580,7 +580,7 @@ PROCEDURE optimize_detector;
 	WHILE (improvement>0.000001*cost)*(num_iterations<100);
 
 		{ calculate the jacobian using finite differences }
-		LOOP i_ray 1 num_characteristic_rays;
+		LOOP i_ray 1 2*num_characteristic_rays;
 			unperturbed_ray_error(i_ray) := ray_error(i_ray);
 		ENDLOOP;
 
@@ -588,21 +588,21 @@ PROCEDURE optimize_detector;
 		p_detector_position := p_detector_position + 0.00000001;
 		calculate_resolution;
 		p_detector_position := p_detector_position - 0.00000001;
-		LOOP i_ray 1 num_characteristic_rays;
+		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 2 }
 		p_detector_tilt := p_detector_tilt + 0.00000001;
 		calculate_resolution;
 		p_detector_tilt := p_detector_tilt - 0.00000001;
-		LOOP i_ray 1 num_characteristic_rays;
+		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 3 }
 		p_detector_curvature := p_detector_curvature + 0.00000001;
 		calculate_resolution;
 		p_detector_curvature := p_detector_curvature - 0.00000001;
-		LOOP i_ray 1 num_characteristic_rays;
+		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
 
@@ -610,7 +610,7 @@ PROCEDURE optimize_detector;
 		LOOP i_coord 1 3;
 			LOOP j_coord 1 3;
 				raw_hessian(i_coord,j_coord) := 0;
-				LOOP i_ray 1 num_characteristic_rays;
+				LOOP i_ray 1 2*num_characteristic_rays;
 					raw_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord) + jacobian(i_ray,i_coord)*jacobian(i_ray,j_coord);
 				ENDLOOP;
 			ENDLOOP;
@@ -619,7 +619,7 @@ PROCEDURE optimize_detector;
 		{ multiply the jacobian by the residuals to get the gradient }
 		LOOP i_coord 1 3;
 			gradient(i_coord) := 0;
-			LOOP i_ray 1 num_characteristic_rays;
+			LOOP i_ray 1 2*num_characteristic_rays;
 				gradient(i_coord) := gradient(i_coord) + jacobian(i_ray,i_coord)*ray_error(i_ray);
 			ENDLOOP;
 		ENDLOOP;
@@ -661,7 +661,7 @@ PROCEDURE optimize_detector;
 			p_detector_curvature := p_detector_curvature + step(3);
 			calculate_resolution;
 			new_cost := 0;
-			LOOP i_ray 1 num_characteristic_rays;
+			LOOP i_ray 1 2*num_characteristic_rays;
 				new_cost := new_cost + 0.5*ray_error(i_ray)^2;
 			ENDLOOP;
 			improvement := cost - new_cost;
