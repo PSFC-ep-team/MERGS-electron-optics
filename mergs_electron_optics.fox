@@ -337,6 +337,15 @@ PROCEDURE calculate_resolution;
 	LOOP i_energy 1 num_energies;
 		d_energy := beam_d_energies(i_energy);
 		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+		{ calculate the dispersion at each energy }
+		LOOP i_ray num_characteristic_rays+1 num_characteristic_rays+num_dispersive_rays;
+			IF input_rays(i_ray,6)=d_energy-0.01;
+				x_left := output_rays(i_ray,1); {m}
+			ELSEIF input_rays(i_ray,6)=d_energy+0.01;
+				x_right := output_rays(i_ray,1); {m}
+			ENDIF;
+		ENDLOOP;
+		dispersion(i_energy) := (x_right - x_left)/(0.02*central_energy); {m/MeV}
 		{ calculate the position of the beamspot for each energy }
 		mean := 0;
 		LOOP i_ray 1 num_characteristic_rays;
@@ -344,7 +353,7 @@ PROCEDURE calculate_resolution;
 				LOOP i_depth 1 2;
 					z := (i_depth - 1.5)*detector_thickness;
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
-					mean := mean + x/(2*num_characteristic_rays/num_energies);
+					mean := mean + x/(2*num_characteristic_rays/num_energies); {m}
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
@@ -356,20 +365,11 @@ PROCEDURE calculate_resolution;
 				LOOP i_depth 1 2;
 					z := (i_depth - 1.5)*detector_thickness;
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
-					ray_error(i_ray*2 + i_depth - 2) := x - mean;
-					variance := variance + (x - mean)^2/(2*num_characteristic_rays/num_energies);
+					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy); {MeV}
+					variance := variance + (x - mean)^2/(2*num_characteristic_rays/num_energies); {m^2}
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
-		{ calculate the dispersion at each energy }
-		LOOP i_ray num_characteristic_rays+1 num_characteristic_rays+num_dispersive_rays;
-			IF input_rays(i_ray,6)=d_energy-0.01;
-				x_left := output_rays(i_ray,1);
-			ELSEIF input_rays(i_ray,6)=d_energy+0.01;
-				x_right := output_rays(i_ray,1);
-			ENDIF;
-		ENDLOOP;
-		dispersion(i_energy) := (x_right - x_left)/(0.02*central_energy); {m/MeV}
 		{ compute resolution }
 		resolution(i_energy) := SQRT(variance)*2.355/dispersion(i_energy); {MeV}
 	ENDLOOP;
@@ -419,13 +419,13 @@ PROCEDURE evaluate_spectrometer;
 	ENDIF;
 	vertices(1) := 0 & 0; {foil}
 	vertices(2) := p_m5_length + p_drift_pre_bend &
-	               -dipole_bend_radius + dipole_max_radius; {magnet front left}
+				   -dipole_bend_radius + dipole_max_radius; {magnet front left}
 	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(dipole_bend_angle,90)/180*PI) &
-	               -dipole_bend_radius + dipole_max_radius*COS(MIN(dipole_bend_angle,90)/180*PI); {magnet back left}
+				   -dipole_bend_radius + dipole_max_radius*COS(MIN(dipole_bend_angle,90)/180*PI); {magnet back left}
 	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) + detector_left_size*SIN(dipole_bend_angle/180*PI) &
-	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) + detector_left_size*COS(dipole_bend_angle/180*PI);
+				   -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) + detector_left_size*COS(dipole_bend_angle/180*PI);
 	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) - detector_right_size*SIN(dipole_bend_angle/180*PI) &
-	               -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) - detector_right_size*COS(dipole_bend_angle/180*PI);
+				   -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) - detector_right_size*COS(dipole_bend_angle/180*PI);
 	system_depth := 0;
 	system_width := 0;
 	system_diagonal := 0;
@@ -493,8 +493,8 @@ PROCEDURE gen_rays;
 				x_angle := (x_aperture-x_foil)/drift_pre_aperture;
 				y_angle := (y_aperture-y_foil)/drift_pre_aperture;
 				SET_RAY x_foil momentum_ratio*x_angle
-				        y_foil momentum_ratio*y_angle
-				        0 d_energy 0 0 color;
+						y_foil momentum_ratio*y_angle
+						0 d_energy 0 0 color;
 			ENDLOOP;
 		ENDLOOP;
 	ENDLOOP;
@@ -529,15 +529,32 @@ PROCEDURE config_spectrometer;
 ENDPROCEDURE;
 
 { determine the detector tilt angle and curvature that best goes with this design }
-{ this function assumes the map is currently set for the end of the last magnet, }
-{ and will edit the map to be defined at the center of the detector instead }
+{ this function will edit the map to be defined at the center of the detector }
 PROCEDURE optimize_detector;
 	VARIABLE objective 1;
 	VARIABLE num_iterations 1;
+	VARIABLE damping 1;
+	VARIABLE cost 1;
+	VARIABLE new_cost 1;
+	VARIABLE improvement 1;
+	VARIABLE expected_improvement 1;
+	VARIABLE unperturbed_ray_error 1 1000;
+	VARIABLE jacobian 1 1000 3;
+	VARIABLE gradient 1 3;
+	VARIABLE raw_hessian 1 3 3;
+	VARIABLE damped_hessian 1 3 3;
+	VARIABLE inverse_hessian 1 3 3;
+	VARIABLE step 1 3;
+	VARIABLE acceptable_step_not_achieved 1;
+	VARIABLE error_flag 1;
+	VARIABLE i_ray 1;
+	VARIABLE i_coord 1;
+	VARIABLE j_coord 1;
+
 	{ move the map to the first-order-focus position to simplify the math }
 	ELT_DRIFT_LENGTH -ME(1,2)/ME(2,2);
 
-	{ start by making the detector coincident with the image plane }
+	{ as an initial guess, make the detector coincident with the image plane }
 	p_detector_position := current_map_position;
 	p_detector_tilt := ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)));
 	p_detector_curvature :=
@@ -547,10 +564,129 @@ PROCEDURE optimize_detector;
 		/(ME(1,6)^2 + (ME(1,26)*ME(1,1))^2)^1.5;
 
 	{ do LM optimization to get the best possible resolution }
-	FIT p_detector_position p_detector_tilt p_detector_curvature;
+	num_iterations := 0;
+
+	damping := 0.0001;
+
+	{ calculate the residuals at the initial point }
+	calculate_resolution;
+	cost := 0;
+	LOOP i_ray 1 num_characteristic_rays;
+		cost := cost + 0.5*ray_error(i_ray)^2;
+	ENDLOOP;
+
+	improvement := 100000000*cost;
+
+	WHILE (improvement>0.000001*cost)*(num_iterations<100);
+
+		{ calculate the jacobian using finite differences }
+		LOOP i_ray 1 num_characteristic_rays;
+			unperturbed_ray_error(i_ray) := ray_error(i_ray);
+		ENDLOOP;
+
+		{ calculate the finite difference gradient in dimension 1 }
+		p_detector_position := p_detector_position + 0.00000001;
 		calculate_resolution;
-		objective := resolution(1)^2+resolution(2)^2+resolution(3)^2;
-	ENDFIT 1e-6 100 4 objective;
+		p_detector_position := p_detector_position - 0.00000001;
+		LOOP i_ray 1 num_characteristic_rays;
+			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+		ENDLOOP;
+		{ calculate the finite difference gradient in dimension 2 }
+		p_detector_tilt := p_detector_tilt + 0.00000001;
+		calculate_resolution;
+		p_detector_tilt := p_detector_tilt - 0.00000001;
+		LOOP i_ray 1 num_characteristic_rays;
+			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+		ENDLOOP;
+		{ calculate the finite difference gradient in dimension 3 }
+		p_detector_curvature := p_detector_curvature + 0.00000001;
+		calculate_resolution;
+		p_detector_curvature := p_detector_curvature - 0.00000001;
+		LOOP i_ray 1 num_characteristic_rays;
+			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+		ENDLOOP;
+
+		{ multiply the jacobian by its transpose to get the approximate hessian }
+		LOOP i_coord 1 3;
+			LOOP j_coord 1 3;
+				raw_hessian(i_coord,j_coord) := 0;
+				LOOP i_ray 1 num_characteristic_rays;
+					raw_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord) + jacobian(i_ray,i_coord)*jacobian(i_ray,j_coord);
+				ENDLOOP;
+			ENDLOOP;
+		ENDLOOP;
+
+		{ multiply the jacobian by the residuals to get the gradient }
+		LOOP i_coord 1 3;
+			gradient(i_coord) := 0;
+			LOOP i_ray 1 num_characteristic_rays;
+				gradient(i_coord) := gradient(i_coord) + jacobian(i_ray,i_coord)*ray_error(i_ray);
+			ENDLOOP;
+		ENDLOOP;
+
+		{ do the line search }
+		acceptable_step_not_achieved := TRUE;
+		WHILE acceptable_step_not_achieved*(damping<1000000);
+
+			{ calculate the step for the current level of damping }
+			LOOP i_coord 1 3;
+				LOOP j_coord 1 3;
+					IF i_coord=j_coord;
+						damped_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord) + damping;
+					ELSEIF TRUE;
+						damped_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord);
+					ENDIF;
+				ENDLOOP;
+			ENDLOOP;
+			LINV damped_hessian inverse_hessian 3 3 error_flag;
+			IF error_flag#0;
+				WRITE 6 'error in matrix inversion!' error_flag;
+			ENDIF;
+			LOOP i_coord 1 3;
+				step(i_coord) := 0;
+				LOOP j_coord 1 3;
+					step(i_coord) := step(i_coord) - inverse_hessian(i_coord,j_coord)*gradient(j_coord);
+				ENDLOOP;
+			ENDLOOP;
+
+			{ estimate the new objective function at the new point }
+			expected_improvement := 0;
+			LOOP i_coord 1 3;
+				expected_improvement := expected_improvement - gradient(i_coord)*step(i_coord);
+			ENDLOOP;
+
+			{ calculate the actual new objective function at the new point }
+			p_detector_position := p_detector_position + step(1);
+			p_detector_tilt := p_detector_tilt + step(2);
+			p_detector_curvature := p_detector_curvature + step(3);
+			calculate_resolution;
+			new_cost := 0;
+			LOOP i_ray 1 num_characteristic_rays;
+				new_cost := new_cost + 0.5*ray_error(i_ray)^2;
+			ENDLOOP;
+			improvement := cost - new_cost;
+
+			{ if so, update the state variables }
+			IF improvement>0.1*expected_improvement;
+				cost := new_cost;
+				acceptable_step_not_achieved := FALSE;
+
+			{ if not, revert the step and increase the damping }
+			ELSEIF TRUE;
+				p_detector_position := p_detector_position - step(1);
+				p_detector_tilt := p_detector_tilt - step(2);
+				p_detector_curvature := p_detector_curvature - step(3);
+				damping := damping*13;
+			ENDIF;
+
+		ENDWHILE;
+
+		IF damping>0.000001;
+			damping := damping/8;
+		ENDIF;
+		num_iterations := num_iterations + 1;
+
+	ENDWHILE;
 
 	{ apply reasonable limits }
 	p_detector_position := MAX(0, MIN(2, p_detector_position));  { positive, and no more than 3 m }
