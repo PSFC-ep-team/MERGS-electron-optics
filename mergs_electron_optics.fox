@@ -544,6 +544,7 @@ PROCEDURE optimize_detector;
 	VARIABLE raw_hessian 1 3 3;
 	VARIABLE damped_hessian 1 3 3;
 	VARIABLE inverse_hessian 1 3 3;
+	VARIABLE previous_guess 1 3;
 	VARIABLE step 1 3;
 	VARIABLE acceptable_step_not_achieved 1;
 	VARIABLE error_flag 1;
@@ -555,15 +556,16 @@ PROCEDURE optimize_detector;
 	ELT_DRIFT_LENGTH -ME(1,2)/ME(2,2);
 
 	{ as an initial guess, make the detector coincident with the image plane }
-	p_detector_position := current_map_position;
-	p_detector_tilt := ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)));
-	p_detector_curvature :=
+	p_detector_position := MAX(0, MIN(2, current_map_position));
+	p_detector_tilt := MAX(-1, MIN(1, ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)))));
+	p_detector_curvature := MAX(-10, MIN(10,
 		2*ME(1,1)*(
 			ME(1,26)*(ME(1,66) - ME(1,26)*ME(2,6)*ME(1,1)) -
 			ME(1,6)*(ME(1,266) - ME(2,26)*ME(1,26)*ME(1,1)))
-		/(ME(1,6)^2 + (ME(1,26)*ME(1,1))^2)^1.5;
+		/(ME(1,6)^2 + (ME(1,26)*ME(1,1))^2)^1.5
+	));
 
-	{ do LM optimization to get the best possible resolution }
+	{ do Levenberg-Marquardt optimization to get the best possible resolution }
 	num_iterations := 0;
 
 	damping := 0.0001;
@@ -583,25 +585,28 @@ PROCEDURE optimize_detector;
 		LOOP i_ray 1 2*num_characteristic_rays;
 			unperturbed_ray_error(i_ray) := ray_error(i_ray);
 		ENDLOOP;
+		previous_guess(1) := p_detector_position;
+		previous_guess(2) := p_detector_tilt;
+		previous_guess(3) := p_detector_curvature;
 
 		{ calculate the finite difference gradient in dimension 1 }
-		p_detector_position := p_detector_position + 0.00000001;
+		p_detector_position := previous_guess(1) + 0.00000001;
 		calculate_resolution;
-		p_detector_position := p_detector_position - 0.00000001;
+		p_detector_position := previous_guess(1);
 		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 2 }
-		p_detector_tilt := p_detector_tilt + 0.00000001;
+		p_detector_tilt := previous_guess(2) + 0.00000001;
 		calculate_resolution;
-		p_detector_tilt := p_detector_tilt - 0.00000001;
+		p_detector_tilt := previous_guess(2);
 		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 3 }
-		p_detector_curvature := p_detector_curvature + 0.00000001;
+		p_detector_curvature := previous_guess(3) + 0.00000001;
 		calculate_resolution;
-		p_detector_curvature := p_detector_curvature - 0.00000001;
+		p_detector_curvature := previous_guess(3);
 		LOOP i_ray 1 2*num_characteristic_rays;
 			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
 		ENDLOOP;
@@ -655,10 +660,12 @@ PROCEDURE optimize_detector;
 				expected_improvement := expected_improvement - gradient(i_coord)*step(i_coord);
 			ENDLOOP;
 
+			{ take the step and coerce it into bounds }
+			p_detector_position := MAX(0, MIN(2, previous_guess(1) + step(1)));
+			p_detector_tilt := MAX(-1, MIN(1, previous_guess(2) + step(2)));
+			p_detector_curvature := MAX(-10, MIN(10, previous_guess(3) + step(3)));
+
 			{ calculate the actual new objective function at the new point }
-			p_detector_position := p_detector_position + step(1);
-			p_detector_tilt := p_detector_tilt + step(2);
-			p_detector_curvature := p_detector_curvature + step(3);
 			calculate_resolution;
 			new_cost := 0;
 			LOOP i_ray 1 2*num_characteristic_rays;
@@ -673,9 +680,9 @@ PROCEDURE optimize_detector;
 
 			{ if not, revert the step and increase the damping }
 			ELSEIF TRUE;
-				p_detector_position := p_detector_position - step(1);
-				p_detector_tilt := p_detector_tilt - step(2);
-				p_detector_curvature := p_detector_curvature - step(3);
+				p_detector_position := previous_guess(1);
+				p_detector_tilt := previous_guess(2);
+				p_detector_curvature := previous_guess(3);
 				damping := damping*13;
 			ENDIF;
 
@@ -687,11 +694,6 @@ PROCEDURE optimize_detector;
 		num_iterations := num_iterations + 1;
 
 	ENDWHILE;
-
-	{ apply reasonable limits }
-	p_detector_position := MAX(0, MIN(2, p_detector_position));  { positive, and no more than 3 m }
-	p_detector_tilt := MAX(-1, MIN(1, p_detector_tilt));  { +/- 1 rad }
-	p_detector_curvature := MAX(-10, MIN(10, p_detector_curvature));  { +/- 10 rad/m }
 
 	{ adjust the mapped location in case we moved the focal plane }
 	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
@@ -810,7 +812,7 @@ PROCEDURE main;
 	p_shape_out_4 := 0;
 	p_detector_position := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
 	p_detector_tilt := 0; {{CONSTRAINT |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_detector_curvature := 0; {{CONSTRAINT |min=-10 |max=0 |bias=1/0.5 |unit=rad/m}}
+	p_detector_curvature := 0; {{CONSTRAINT |min=-10 |max=10 |bias=1/0.5 |unit=rad/m}}
 
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
