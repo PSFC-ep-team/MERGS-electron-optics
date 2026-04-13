@@ -63,10 +63,6 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 
 		fronts.append((resolutions, efficiencies, hyperparameters, label))
 
-	plt.rcParams["font.size"] = 12
-	plt.rcParams['xtick.labelsize'] = 12
-	plt.rcParams['ytick.labelsize'] = 12
-
 	performance_fig = plt.figure(figsize=(4.5, 4.0))
 	performance_ax = performance_fig.add_subplot()
 	parameter_fig = plt.figure(figsize=(6.0, 3.0))
@@ -109,10 +105,10 @@ def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance
 	find the range of achievable performances for a given set of aperture parameters,
 	ignoring ion-optics and only varying foil thickness
 	"""
-	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
 	resolutions = empty_like(efficiencies)
 	hyperparameters = []
-	with ProcessPoolExecutor(max_workers=8) as executor:
+	with ProcessPoolExecutor(max_workers=9) as executor:
 		for i, efficiency in enumerate(efficiencies):
 			foil_thickness = optimize_foil_thickness(foil_diameter, aperture_distance, aperture_diameter, efficiency, executor)
 			resolutions[i] = calculate_resolution(
@@ -129,7 +125,7 @@ def find_pareto_front_of_collimator(foil_diameter: float) -> tuple[Sequence[floa
 	"""
 	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
 	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
 
 	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_hyperparameters,
@@ -191,7 +187,7 @@ def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], 
 
 	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
 	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 8)  # counts/MJ
+	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
 
 	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_configuration,

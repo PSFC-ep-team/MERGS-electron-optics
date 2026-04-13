@@ -18,7 +18,7 @@ from scipy import optimize, stats
 
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order=6, method="SLSQP", final=True, save_name=None) -> tuple[list[float], float, float]:
+		frugality: float, order=6, method="SLSQP", save_name=None) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
@@ -27,7 +27,6 @@ def optimize_electron_optics(
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
 	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", or "differential evolution"
-	:param final: whether to try extra hard to find the optimum
 	:param save_name: a filename for the final solution
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
@@ -461,7 +460,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .40, .04, 0.05,
+		.03, .40, .04, 0.01,
 		order=6, method="SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)

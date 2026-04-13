@@ -514,7 +514,7 @@ PROCEDURE config_spectrometer;
 	VARIABLE order 1;
 	VARIABLE i 1;
 
-	order := 6;
+	order := 10;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	central_energy := 13.5; {MeV}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
@@ -794,21 +794,21 @@ PROCEDURE main;
 	drift_pre_aperture := 0.40;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.010464139607100739; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.03139886414563371; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.2433636778316083; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.1442401897961509; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.18338533338170881; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.18956111023325165; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.17803132391107618; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := 0.34201900180547873; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.050000000002240384; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.5846344972302051; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 7.649037707008663; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 23.556181322074;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_drift_pre_bend := 0.16151291434614884; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.3772827951841741; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 5.059815421937646; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 11.714243237913799;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
-	p_shape_out_1 := -0.23929493316622888; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -3.3958492735610855; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 4.311090537362007; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := 0.3127662763351939; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -2.549745193760596; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 3.1553287764986058; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 	p_detector_position := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
 	p_detector_tilt := 0; {{CONSTRAINT |min=-1 |max=1 |bias=0 |unit=rad}}
