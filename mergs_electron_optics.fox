@@ -3,8 +3,8 @@ PROCEDURE mergs_ion_optics;
 
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
-VARIABLE beam_d_energies 1 3;
-VARIABLE beam_colors 1 3;
+VARIABLE beam_d_energies 1 5;
+VARIABLE beam_colors 1 5;
 
 VARIABLE foil_width 1;
 VARIABLE foil_height 1;
@@ -54,6 +54,9 @@ VARIABLE num_rays 1;  { tracks the size of input_rays and output_rays }
 VARIABLE num_characteristic_rays 1;
 VARIABLE num_dispersive_rays 1;
 
+VARIABLE all_rays_valid 1;
+VARIABLE nearest_valid_curvature 1;
+
 VARIABLE beam_min_x 1;
 VARIABLE beam_max_x 1;
 VARIABLE beam_min_y 1;
@@ -63,9 +66,9 @@ VARIABLE beam_width 1;
 VARIABLE beam_height 1;
 
 VARIABLE ray_error 1 1000;
-VARIABLE position 1 3;
-VARIABLE dispersion 1 3;
-VARIABLE resolution 1 3;
+VARIABLE position 1 5;
+VARIABLE dispersion 1 5;
+VARIABLE resolution 1 5;
 VARIABLE detector_left 1;
 VARIABLE detector_right 1;
 VARIABLE focal_plane_length 1;
@@ -208,6 +211,10 @@ PROCEDURE transform_rays project_to_detector;
 	{ save the map to a variable }
 	SM map;
 
+	{ keep an eye out for any invalid rays }
+	all_rays_valid := TRUE;
+	nearest_valid_curvature := p_detector_curvature;
+
 	LOOP i_ray 1 num_rays;
 		LOOP i_coord 1 8;
 			input_ray(i_coord) := input_rays(i_ray,i_coord);
@@ -246,7 +253,16 @@ PROCEDURE transform_rays project_to_detector;
 			ELSEIF coef_A*coef_C<coef_B^2;
 				distance := (coef_B - SQRT(coef_B^2 - coef_A*coef_C))/coef_A;
 			ELSEIF TRUE;
-				distance := coef_B/coef_A;  { if the ray doesn't hit the arc, just fudge it }
+				distance := coef_B/coef_A;  { if the ray doesn't hit the arc, fudge it and flag it }
+				all_rays_valid := FALSE;
+				coef_A := (x0*cos_yaw + z0*sin_yaw)^2;  { calculate what the curvature would have to be for this to work }
+				coef_B := -(x0*cos_yaw - z0*sin_yaw)*(sin_yaw*cos_tilt + cos_yaw*sin_tilt);
+				coef_C := (cos_yaw*cos_tilt - sin_yaw*sin_tilt)^2;
+				IF p_detector_curvature>0;
+					nearest_valid_curvature := MIN(nearest_valid_curvature, coef_B/coef_A + SQRT(coef_B^2 + coef_A*coef_C)/coef_A);
+				ELSEIF TRUE;
+					nearest_valid_curvature := MAX(nearest_valid_curvature, coef_B/coef_A - SQRT(coef_B^2 + coef_A*coef_C)/coef_A);
+				ENDIF;
 			ENDIF;
 			x := x0 + distance*sin_yaw;
 			z := z0 + distance*cos_yaw;
@@ -259,7 +275,7 @@ PROCEDURE transform_rays project_to_detector;
 				output_ray(1) := ASIN(q*p_detector_curvature)/p_detector_curvature;
 				detector_rotation := ASIN(q*p_detector_curvature);
 			ELSEIF TRUE;
-				output_ray(1) := PI/2/p_detector_curvature;  { if the ray doesn't hit the arc, just fudge it }
+				output_ray(1) := PI/2/p_detector_curvature;  { if the ray doesn't hit the arc, fudge it }
 				detector_rotation := PI/2;
 			ENDIF;
 			{modify a to be relative to the detector's local normal vector}
@@ -329,6 +345,7 @@ PROCEDURE calculate_resolution;
 	VARIABLE i_depth 1;
 	VARIABLE spot_size 1;
 	VARIABLE x_left 1;
+	VARIABLE x_center 1;
 	VARIABLE x_right 1;
 
 	{ first look at the rays to get the resolution }
@@ -338,14 +355,21 @@ PROCEDURE calculate_resolution;
 		d_energy := beam_d_energies(i_energy);
 		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 		{ calculate the dispersion at each energy }
-		LOOP i_ray num_characteristic_rays+1 num_characteristic_rays+num_dispersive_rays;
-			IF input_rays(i_ray,6)=d_energy-0.01;
-				x_left := output_rays(i_ray,1); {m}
-			ELSEIF input_rays(i_ray,6)=d_energy+0.01;
-				x_right := output_rays(i_ray,1); {m}
+		LOOP i_ray 1 num_rays;
+			IF (input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0);
+				IF input_rays(i_ray,6)=d_energy-0.05;
+					x_right := output_rays(i_ray,1); {m}
+				ELSEIF input_rays(i_ray,6)=d_energy;
+					x_center := output_rays(i_ray,1); {m}
+				ELSEIF input_rays(i_ray,6)=d_energy+0.05;
+					x_left := output_rays(i_ray,1); {m}
+				ENDIF;
 			ENDIF;
 		ENDLOOP;
-		dispersion(i_energy) := (x_right - x_left)/(0.02*central_energy); {m/MeV}
+		dispersion(i_energy) := MIN(
+			(x_left - x_center)/(0.05*central_energy),
+			(x_center - x_right)/(0.05*central_energy)
+		); {m/MeV}
 		{ calculate the position of the beamspot for each energy }
 		mean := 0;
 		LOOP i_ray 1 num_characteristic_rays;
@@ -464,32 +488,36 @@ PROCEDURE gen_rays;
 	CLEAR_RAYS;
 
 	{ characteristic rays }
-	LOOP i_energy 1 num_energies;
-		d_energy := beam_d_energies(i_energy);
-		color := beam_colors(i_energy);
-		{this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization}
-		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 
-		{ iterate over an octagon inscribed in the aperture }
-		LOOP theta_aperture 0 2*PI PI/4;
-			IF theta_aperture<2*PI;
-				x_aperture := aperture_width/2*COS(theta_aperture);
-				y_aperture := aperture_height/2*SIN(theta_aperture);
-			ELSEIF theta_aperture=2*PI;
-				{ add a ninth point in the center of the aperture }
-				x_aperture := 0;
-				y_aperture := 0;
+	{ iterate over an octagon inscribed in the aperture }
+	LOOP theta_aperture 0 2*PI PI/4;
+		IF theta_aperture<2*PI;
+			x_aperture := aperture_width/2*COS(theta_aperture);
+			y_aperture := aperture_height/2*SIN(theta_aperture);
+		ELSEIF theta_aperture=2*PI;
+			{ add a ninth point in the center of the aperture }
+			x_aperture := 0;
+			y_aperture := 0;
+		ENDIF;
+
+		{ iterate over an octagon inscribed in the foil }
+		LOOP theta_foil 0 2*PI PI/4;
+			IF theta_foil<2*PI;
+				x_foil := foil_width/2*COS(theta_foil);
+				y_foil := foil_height/2*SIN(theta_foil);
+			ELSEIF theta_foil=2*PI;
+				{ add a ninth point in the center of the foil }
+				x_foil := 0;
+				y_foil := 0;
 			ENDIF;
-			{ iterate over an octagon inscribed in the foil }
-			LOOP theta_foil 0 2*PI PI/4;
-				IF theta_foil<2*PI;
-					x_foil := foil_width/2*COS(theta_foil);
-					y_foil := foil_height/2*SIN(theta_foil);
-				ELSEIF theta_foil=2*PI;
-					{ add a ninth point in the center of the foil }
-					x_foil := 0;
-					y_foil := 0;
-				ENDIF;
+
+			{ iterate over all the energies }
+			LOOP i_energy 1 num_energies;
+				d_energy := beam_d_energies(i_energy);
+				color := beam_colors(i_energy);
+				{this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization}
+				momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+
 				x_angle := (x_aperture-x_foil)/drift_pre_aperture;
 				y_angle := (y_aperture-y_foil)/drift_pre_aperture;
 				SET_RAY x_foil momentum_ratio*x_angle
@@ -504,8 +532,8 @@ PROCEDURE gen_rays;
 	LOOP i_energy 1 num_energies;
 		d_energy := beam_d_energies(i_energy);
 		color := beam_colors(i_energy);
-		SET_RAY 0 0 0 0 0 d_energy-0.01 0 0 color;
-		SET_RAY 0 0 0 0 0 d_energy+0.01 0 0 color;
+		SET_RAY 0 0 0 0 0 d_energy-0.05 0 0 1;
+		SET_RAY 0 0 0 0 0 d_energy+0.05 0 0 1;
 	ENDLOOP;
 	num_dispersive_rays := num_rays-num_characteristic_rays;
 ENDPROCEDURE;
@@ -519,13 +547,15 @@ PROCEDURE config_spectrometer;
 	central_energy := 13.5; {MeV}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 
-	num_energies := 3;
+	num_energies := 5;
 	LOOP i 1 num_energies;
 		beam_d_energies(i) := -0.3 + 0.6*(i-1)/(num_energies-1);
 	ENDLOOP;
 	beam_colors(1) := 4; {yellow}
-	beam_colors(2) := 5; {green}
-	beam_colors(3) := 7; {light blue}
+	beam_colors(2) := 6; {chartreuse}
+	beam_colors(3) := 5; {green}
+	beam_colors(4) := 7; {light blue}
+	beam_colors(5) := 2; {blue}
 ENDPROCEDURE;
 
 { determine the detector tilt angle and curvature that best goes with this design }
@@ -533,6 +563,7 @@ ENDPROCEDURE;
 PROCEDURE optimize_detector;
 	VARIABLE objective 1;
 	VARIABLE num_iterations 1;
+	VARIABLE diff 1;
 	VARIABLE damping 1;
 	VARIABLE cost 1;
 	VARIABLE new_cost 1;
@@ -570,8 +601,15 @@ PROCEDURE optimize_detector;
 
 	damping := 0.0001;
 
-	{ calculate the residuals at the initial point }
+	{ sometimes the image plane is a bad guess; turn down the curvature if so }
 	calculate_resolution;
+	IF NOT(all_rays_valid);
+		p_detector_curvature := nearest_valid_curvature;
+		calculate_resolution;
+	ENDIF;
+	p_detector_curvature := p_detector_curvature;
+
+	{ calculate the residuals at the initial point }
 	cost := 0;
 	LOOP i_ray 1 2*num_characteristic_rays;
 		cost := cost + 0.5*ray_error(i_ray)^2;
@@ -589,26 +627,30 @@ PROCEDURE optimize_detector;
 		previous_guess(2) := p_detector_tilt;
 		previous_guess(3) := p_detector_curvature;
 
+		diff := 0.00000001;
 		{ calculate the finite difference gradient in dimension 1 }
-		p_detector_position := previous_guess(1) + 0.00000001;
+		p_detector_position := previous_guess(1) + diff;
 		calculate_resolution;
 		p_detector_position := previous_guess(1);
 		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 2 }
-		p_detector_tilt := previous_guess(2) + 0.00000001;
+		p_detector_tilt := previous_guess(2) + diff;
 		calculate_resolution;
 		p_detector_tilt := previous_guess(2);
 		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
 		ENDLOOP;
 		{ calculate the finite difference gradient in dimension 3 }
-		p_detector_curvature := previous_guess(3) + 0.00000001;
+		IF p_detector_curvature>0;
+			diff := -diff;  { always step toward zero to avoid boundary problems }
+		ENDIF;
+		p_detector_curvature := previous_guess(3) + diff;
 		calculate_resolution;
 		p_detector_curvature := previous_guess(3);
 		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/0.00000001;
+			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
 		ENDLOOP;
 
 		{ multiply the jacobian by its transpose to get the approximate hessian }
@@ -646,6 +688,7 @@ PROCEDURE optimize_detector;
 			LINV damped_hessian inverse_hessian 3 3 error_flag;
 			IF error_flag#0;
 				WRITE 6 'error in matrix inversion!' error_flag;
+				QUIT 1;
 			ENDIF;
 			LOOP i_coord 1 3;
 				step(i_coord) := 0;
@@ -654,19 +697,23 @@ PROCEDURE optimize_detector;
 				ENDLOOP;
 			ENDLOOP;
 
+			{ take the step and coerce it into bounds }
+			p_detector_position := MAX(0, MIN(2, previous_guess(1) + step(1)));
+			p_detector_tilt := MAX(-1, MIN(1, previous_guess(2) + step(2)));
+			p_detector_curvature := MAX(-10, MIN(10, previous_guess(3) + step(3)));
+			calculate_resolution;
+			IF NOT(all_rays_valid);
+				p_detector_curvature := nearest_valid_curvature;
+				calculate_resolution;
+			ENDIF;
+
 			{ estimate the new objective function at the new point }
 			expected_improvement := 0;
 			LOOP i_coord 1 3;
 				expected_improvement := expected_improvement - gradient(i_coord)*step(i_coord);
 			ENDLOOP;
 
-			{ take the step and coerce it into bounds }
-			p_detector_position := MAX(0, MIN(2, previous_guess(1) + step(1)));
-			p_detector_tilt := MAX(-1, MIN(1, previous_guess(2) + step(2)));
-			p_detector_curvature := MAX(-10, MIN(10, previous_guess(3) + step(3)));
-
 			{ calculate the actual new objective function at the new point }
-			calculate_resolution;
 			new_cost := 0;
 			LOOP i_ray 1 2*num_characteristic_rays;
 				new_cost := new_cost + 0.5*ray_error(i_ray)^2;
