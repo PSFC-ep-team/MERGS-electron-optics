@@ -11,34 +11,36 @@ foil_width := 0.300000000000000E-01;
 foil_height := 0.300000000000000E-01;
 aperture_width := 0.400000000000000E-01;
 aperture_height := 0.400000000000000E-01;
-p_m5_quad_field := 0.313988641456337E-01;
+p_m5_quad_field := 0.241862006268714E-01;
 p_m5_hex_field :=  0.00000000000000;
-p_dipole_field := 0.183385333381709;
-p_m5_radius := 0.473902775583129E-01;
-p_m5_length := 0.189561110233252;
+p_dipole_field := 0.157696365874824;
+p_m5_radius := 0.429310611485350E-01;
+p_m5_length := 0.171724244594140;
 p_dipole_halfwidth := 0.150000000000000;
-p_dipole_length := 0.342019001805479;
+p_dipole_length := 0.310344774634725;
 drift_pre_aperture := 0.400000000000000;
-p_drift_pre_bend := 0.161512914346149;
-p_shape_in_1 := 0.377282795184174;
-p_shape_in_2 :=  5.05981542193765;
-p_shape_in_3 :=  11.7142432379138;
-p_shape_in_4 :=  0.00000000000000;
-p_shape_out_1 := 0.312766276335194;
-p_shape_out_2 := -2.54974519376060;
-p_shape_out_3 :=  3.15532877649861;
-p_shape_out_4 :=  0.00000000000000;
-p_detector_position :=  1.17724836314943;
-p_detector_tilt := -1.00000000000000;
-p_detector_curvature := -.376188636619752E-07;
+p_drift_pre_bend := 0.340801232648447;
+p_shape_in_1 := 0.223997379533477;
+p_shape_in_2 :=  3.64306222447111;
+p_shape_in_3 :=  11.4726865006197;
+p_shape_in_4 := -.189136860956016E-01;
+p_shape_in_5 := 0.284204127536708E-02;
+p_shape_out_1 := 0.115872444326759;
+p_shape_out_2 := -2.43518174960541;
+p_shape_out_3 :=  3.52704459449540;
+p_shape_out_4 := -.217086179125944;
+p_shape_out_5 := -.237820564713467E-02;
+p_detector_position := 0.852793377106638;
+p_detector_tilt := 0.161547726009394;
+p_detector_curvature := -1.13501697799543;
 
-dipole_bend_angle :=  76.8953294793708;
-dipole_max_bend_radius := 0.452646499987804;
-dipole_central_bend_radius := 0.254843115302451;
-dipole_min_bend_radius := 0.173967491550016;
-dipole_gap_height := 0.738081171911750E-01;
-detector_right :=  19490130.5859404;
-detector_left := 0.683712098877445;
+dipole_bend_angle :=  60.0000000000000;
+dipole_max_bend_radius := 0.491303757068937;
+dipole_central_bend_radius := 0.296357429675140;
+dipole_min_bend_radius := 0.187826930466530;
+dipole_gap_height := 0.105318956912573;
+detector_right := 0.442622006062569;
+detector_left := 0.220093363331095;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -52,7 +54,7 @@ def draw_magnets():
 
 	paths = []
 	x = .05
-	y = .20
+	y = .25
 	θ = 0
 
 	draw_plane(
@@ -88,12 +90,14 @@ def draw_magnets():
 			parameters["p_shape_in_2"],
 			parameters["p_shape_in_3"],
 			parameters["p_shape_in_4"],
+			parameters["p_shape_in_5"],
 		],
 		[
 			parameters["p_shape_out_1"],
 			parameters["p_shape_out_2"],
 			parameters["p_shape_out_3"],
 			parameters["p_shape_out_4"],
+			parameters["p_shape_out_5"],
 		],
 	)
 	x, y = draw_drift_length(
@@ -304,7 +308,7 @@ def evaluate_polynomial(x, coefficients, lower_breakpoint=-inf, upper_breakpoint
 def write_SVG(filename: str, paths: List[Path]) -> None:
 	svg_string = (
 		'<?xml version="1.0" encoding="UTF-8"?>\n'
-		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 1.50 1.50" width="15cm" height="15cm">\n'
+		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 3.00 3.00" width="30cm" height="30cm">\n'
 		'  <style>\n'
 		'    .magnet { fill: #8b959e; stroke: none; }\n'
 		'    .plane { fill: none; stroke: #8b959e; stroke-width: .01; stroke-linecap: butt; }\n'

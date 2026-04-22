@@ -325,7 +325,7 @@ def infer_parameter_names(content: str) -> Tuple[List[Parameter], List[Parameter
 def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 	for pattern in [
 		r"\b(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9eE]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
-		r"\bWRITE out '(?P<name>[A-Za-z0-9_ ]+):'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+		r"\bWRITE out '(?P<name>[A-Za-z0-9_ ]+):=?\s*'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
 	]:
 		match = re.search(pattern, line)
 		if match is not None:
@@ -335,7 +335,7 @@ def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 					key, value = arg.split("=")
 					hyperparameters[key.strip()] = value.strip()
 			return Parameter(
-				name=match["name"],
+				name=match["name"].strip(),
 				default=float(match["value"]) if "value" in match.groupdict() else None,
 				min=float(hyperparameters["min"]),
 				max=float(hyperparameters["max"]),
@@ -461,6 +461,6 @@ class Parameter:
 if __name__ == '__main__':
 	optimize_electron_optics(
 		.03, .40, .04, 0.01,
-		order=6, method="SLSQP",
+		order=12, method="SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)

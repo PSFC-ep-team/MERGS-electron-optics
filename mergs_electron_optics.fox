@@ -3,8 +3,8 @@ PROCEDURE mergs_ion_optics;
 
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
-VARIABLE beam_d_energies 1 5;
-VARIABLE beam_colors 1 5;
+VARIABLE beam_d_energy 1 5;
+VARIABLE beam_color 1 5;
 
 VARIABLE foil_width 1;
 VARIABLE foil_height 1;
@@ -16,10 +16,12 @@ VARIABLE p_shape_in_1 1;
 VARIABLE p_shape_in_2 1;
 VARIABLE p_shape_in_3 1;
 VARIABLE p_shape_in_4 1;
+VARIABLE p_shape_in_5 1;
 VARIABLE p_shape_out_1 1;
 VARIABLE p_shape_out_2 1;
 VARIABLE p_shape_out_3 1;
 VARIABLE p_shape_out_4 1;
+VARIABLE p_shape_out_5 1;
 
 VARIABLE p_m5_quad_field 1;
 VARIABLE p_m5_hex_field 1;
@@ -182,8 +184,8 @@ PROCEDURE transform_rays project_to_detector;
 	VARIABLE i_ray 1;
 	VARIABLE i_coord 1;
 	VARIABLE input_ray 1 8;
+	VARIABLE output_ray_vectors 500 8;
 	VARIABLE output_ray 1 8;
-	VARIABLE map 10000 8;
 	VARIABLE momentum_ratio 1;
 	VARIABLE x0 1;
 	VARIABLE z0 1;
@@ -208,8 +210,8 @@ PROCEDURE transform_rays project_to_detector;
 	VARIABLE detector_rotation 1;
 	VARIABLE relative_yaw 1;
 
-	{ save the map to a variable }
-	SM map;
+	{ save the output ray coordinates that COSY has calculated }
+	SRAY output_ray_vectors;
 
 	{ keep an eye out for any invalid rays }
 	all_rays_valid := TRUE;
@@ -218,10 +220,8 @@ PROCEDURE transform_rays project_to_detector;
 	LOOP i_ray 1 num_rays;
 		LOOP i_coord 1 8;
 			input_ray(i_coord) := input_rays(i_ray,i_coord);
+			output_ray(i_coord) := output_ray_vectors(i_coord)|(i_ray + 1);  { don't forget the +1 because COSY dumps an extra central ray with SRAY }
 		ENDLOOP;
-
-		{ apply the map to get COSY's idea of an output ray }
-		POLVAL 1 map TWOND input_ray TWOND output_ray TWOND ;
 
 		IF project_to_detector;
 
@@ -352,7 +352,7 @@ PROCEDURE calculate_resolution;
 	transform_rays TRUE;
 
 	LOOP i_energy 1 num_energies;
-		d_energy := beam_d_energies(i_energy);
+		d_energy := beam_d_energy(i_energy);
 		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 		{ calculate the dispersion at each energy }
 		LOOP i_ray 1 num_rays;
@@ -366,10 +366,13 @@ PROCEDURE calculate_resolution;
 				ENDIF;
 			ENDIF;
 		ENDLOOP;
-		dispersion(i_energy) := MIN(
-			(x_left - x_center)/(0.05*central_energy),
-			(x_center - x_right)/(0.05*central_energy)
-		); {m/MeV}
+		IF d_energy<-0.1;
+			dispersion(i_energy) := (x_left - x_center)/(0.05*central_energy); {m/MeV}
+		ELSEIF d_energy>0.1;
+			dispersion(i_energy) := (x_center - x_right)/(0.05*central_energy); {m/MeV}
+		ELSEIF TRUE;
+			dispersion(i_energy) := (x_left - x_right)/(0.10*central_energy); {m/MeV}
+		ENDIF;
 		{ calculate the position of the beamspot for each energy }
 		mean := 0;
 		LOOP i_ray 1 num_characteristic_rays;
@@ -390,12 +393,12 @@ PROCEDURE calculate_resolution;
 					z := (i_depth - 1.5)*detector_thickness;
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
 					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy); {MeV}
-					variance := variance + (x - mean)^2/(2*num_characteristic_rays/num_energies); {m^2}
+					variance := variance + ((x - mean)/dispersion(i_energy))^2/(2*num_characteristic_rays/num_energies); {MeV^2}
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
 		{ compute resolution }
-		resolution(i_energy) := SQRT(variance)*2.355/dispersion(i_energy); {MeV}
+		resolution(i_energy) := SQRT(variance)*2.355; {MeV}
 	ENDLOOP;
 ENDPROCEDURE;
 
@@ -426,10 +429,10 @@ PROCEDURE evaluate_spectrometer;
 	x := MAX(dipole_min_radius*COS(dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
 	z_arc := SQRT(dipole_min_radius^2 - (x + dipole_bend_radius)^2); {positive z points into the magnet}
 	{ check the front face }
-	z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3+p_shape_in_4*x^4;
+	z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3+p_shape_in_4*x^4+p_shape_in_5*x^5;
 	dipole_front_secancy := z_arc - z_face; {must be positive for the geometry to be well defined}
 	{ then check the back face }
-	z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3+p_shape_out_4*x^4;
+	z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3+p_shape_out_4*x^4+p_shape_in_5*x^5;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
@@ -513,8 +516,8 @@ PROCEDURE gen_rays;
 
 			{ iterate over all the energies }
 			LOOP i_energy 1 num_energies;
-				d_energy := beam_d_energies(i_energy);
-				color := beam_colors(i_energy);
+				d_energy := beam_d_energy(i_energy);
+				color := beam_color(i_energy);
 				{this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization}
 				momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
 
@@ -530,8 +533,8 @@ PROCEDURE gen_rays;
 
 	{ dispersive rays }
 	LOOP i_energy 1 num_energies;
-		d_energy := beam_d_energies(i_energy);
-		color := beam_colors(i_energy);
+		d_energy := beam_d_energy(i_energy);
+		color := beam_color(i_energy);
 		SET_RAY 0 0 0 0 0 d_energy-0.05 0 0 1;
 		SET_RAY 0 0 0 0 0 d_energy+0.05 0 0 1;
 	ENDLOOP;
@@ -542,20 +545,20 @@ PROCEDURE config_spectrometer;
 	VARIABLE order 1;
 	VARIABLE i 1;
 
-	order := 10;
+	order := 12;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	central_energy := 13.5; {MeV}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 
 	num_energies := 5;
 	LOOP i 1 num_energies;
-		beam_d_energies(i) := -0.3 + 0.6*(i-1)/(num_energies-1);
+		beam_d_energy(i) := -0.3 + 0.6*(i-1)/(num_energies-1);
 	ENDLOOP;
-	beam_colors(1) := 4; {yellow}
-	beam_colors(2) := 6; {chartreuse}
-	beam_colors(3) := 5; {green}
-	beam_colors(4) := 7; {light blue}
-	beam_colors(5) := 2; {blue}
+	beam_color(1) := 4; {yellow}
+	beam_color(2) := 6; {chartreuse}
+	beam_color(3) := 5; {green}
+	beam_color(4) := 7; {light blue}
+	beam_color(5) := 2; {blue}
 ENDPROCEDURE;
 
 { determine the detector tilt angle and curvature that best goes with this design }
@@ -748,9 +751,9 @@ ENDPROCEDURE;
 
 PROCEDURE elt_spectrometer;
 	VARIABLE central_momentum 1;
-	VARIABLE shape_in 1 4;
-	VARIABLE shape_out 1 4;
-	VARIABLE shape_zero 1 4;
+	VARIABLE shape_in 1 5;
+	VARIABLE shape_out 1 5;
+	VARIABLE shape_zero 1 5;
 
 	central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
@@ -764,14 +767,17 @@ PROCEDURE elt_spectrometer;
 	shape_in(2) := p_shape_in_2;
 	shape_in(3) := p_shape_in_3;
 	shape_in(4) := p_shape_in_4;
+	shape_in(5) := p_shape_in_5;
 	shape_out(1) := p_shape_out_1;
 	shape_out(2) := p_shape_out_2;
 	shape_out(3) := p_shape_out_3;
 	shape_out(4) := p_shape_out_4;
+	shape_out(5) := p_shape_out_5;
 	shape_zero(1) := 0;
 	shape_zero(2) := 0;
 	shape_zero(3) := 0;
 	shape_zero(4) := 0;
+	shape_zero(5) := 0;
 
 	UNITY_MAP;
 
@@ -795,7 +801,7 @@ PROCEDURE elt_spectrometer;
 
 	ELT_BENDING
 		dipole_bend_radius dipole_bend_angle p_dipole_halfwidth
-		shape_zero shape_in shape_out 4;
+		shape_zero shape_in shape_out 5;
 
 	calculate_beam_size FALSE;
 	dipole_gap_height := MAX(dipole_gap_height, beam_height);
@@ -841,22 +847,24 @@ PROCEDURE main;
 	drift_pre_aperture := 0.40;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.03139886414563371; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.024186200626871376; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.18338533338170881; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.18956111023325165; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.1576963658748236; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.1717242445941401; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := 0.34201900180547873; {{PARAM |min=0.02 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_length := (0.5110 + central_energy)*1e6/2.998e8/p_dipole_field*PI/3;
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.16151291434614884; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.3772827951841741; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.059815421937646; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.714243237913799;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_in_4 := 0;
-	p_shape_out_1 := 0.3127662763351939; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -2.549745193760596; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 3.1553287764986058; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_out_4 := 0;
+	p_drift_pre_bend := 0.34080123264844736; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.22399737953347676; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 3.6430622244711115; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 11.472686500619721;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_in_4 := -0.018913686095601595; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_in_5 := 0.002842041275367079; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_out_1 := 0.11587244432675899; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -2.4351817496054107; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 3.527044594495395; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_4 := -0.21708617912594388; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
+	p_shape_out_5 := -0.0023782056471346735; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
 	p_detector_position := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
 	p_detector_tilt := 0; {{CONSTRAINT |min=-1 |max=1 |bias=0 |unit=rad}}
 	p_detector_curvature := 0; {{CONSTRAINT |min=-10 |max=10 |bias=1/0.5 |unit=rad/m}}
@@ -890,10 +898,12 @@ PROCEDURE main;
 	WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G21.15)')&';';
 	WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G21.15)')&';';
 	WRITE out 'p_shape_in_4 := '&SF(p_shape_in_4, '(G21.15)')&';';
+	WRITE out 'p_shape_in_5 := '&SF(p_shape_in_5, '(G21.15)')&';';
 	WRITE out 'p_shape_out_1 := '&SF(p_shape_out_1, '(G21.15)')&';';
 	WRITE out 'p_shape_out_2 := '&SF(p_shape_out_2, '(G21.15)')&';';
 	WRITE out 'p_shape_out_3 := '&SF(p_shape_out_3, '(G21.15)')&';';
 	WRITE out 'p_shape_out_4 := '&SF(p_shape_out_4, '(G21.15)')&';';
+	WRITE out 'p_shape_out_5 := '&SF(p_shape_out_5, '(G21.15)')&';';
 	WRITE out 'p_detector_position := '&SF(p_detector_position, '(G21.15)')&';';
 	WRITE out 'p_detector_tilt := '&SF(p_detector_tilt, '(G21.15)')&';';
 	WRITE out 'p_detector_curvature := '&SF(p_detector_curvature, '(G21.15)')&';';
@@ -949,17 +959,17 @@ PROCEDURE main;
 	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=0 |max=1000 |bias=-1/10 |unit=cm}}
 	WRITE out 'beam centroid:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
 		WRITE out position(i)*100 'cm';
 	ENDLOOP;
 	WRITE out 'dispersion:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
 		WRITE out dispersion(i)*100 'cm/MeV';
 	ENDLOOP;
 	WRITE out 'algebraic resolution:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energies(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
 		WRITE out resolution(i)*1000 'keV';
 	ENDLOOP;
 
