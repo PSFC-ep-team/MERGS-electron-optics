@@ -155,7 +155,7 @@ def optimize_parameters_and_frugality(
 		lambda frugality: optimize_parameters(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 			cache, executor, final=False, save_name=save_name)[1] - target_resolution,
-		bracket=(0.001, 100),
+		bracket=(0.001, 10),
 		rtol=0.02,  # note the large tolerance; we don't need to get the frugality _that_ precisely
 	)
 	magnet_parameters, resolution, cost = cache[optimum.root]
