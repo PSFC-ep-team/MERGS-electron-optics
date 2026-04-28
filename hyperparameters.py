@@ -51,64 +51,62 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	all_resolutions = []
 	all_costs = []
 
-	with ProcessPoolExecutor(max_workers=8) as executor:
+	def objective(aperture_dimensions):
+		# run the inner optimization scan
+		_, _, resolution, cost = optimize_parameters_and_frugality(
+			foil_diameter, aperture_dimensions[0], aperture_dimensions[1],
+			target_resolution, target_efficiency, executor=None)
+		# save the results
+		all_aperture_distances.append(aperture_dimensions[0]/1e-2)
+		all_aperture_diameters.append(aperture_dimensions[1]/1e-2)
+		all_resolutions.append(resolution)
+		all_costs.append(cost)
+		# make a plot so the user can see our progress
+		fig = plt.figure(figsize=(5.5, 3), facecolor="none")
+		ax = fig.add_subplot()
+		ax.grid()
+		ax.scatter(
+			array(all_aperture_distances)[~isfinite(all_costs)],
+			array(all_aperture_diameters)[~isfinite(all_costs)],
+			s=20, zorder=2, c="k", marker="x")
+		ax.scatter(
+			array(all_aperture_distances)[isfinite(all_costs)],
+			array(all_aperture_diameters)[isfinite(all_costs)],
+			s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
+		for i in range(max(0, len(all_costs) - 10), len(all_costs)):
+			ax.text(all_aperture_distances[i], all_aperture_diameters[i], f"{all_resolutions[i]:.5g} keV, {all_costs[i]:.5g} $")
+		ax.set_xlabel("Aperture distance (cm)")
+		ax.set_ylabel("Aperture diameter (cm)")
+		fig.tight_layout()
+		fig.savefig("generated/hyperparameter_optimization.pdf")
+		plt.close(fig)
+		return cost
 
-		def objective(aperture_dimensions):
-			# run the inner optimization scan
-			_, _, resolution, cost = optimize_parameters_and_frugality(
-				foil_diameter, aperture_dimensions[0], aperture_dimensions[1],
-				target_resolution, target_efficiency, executor)
-			# save the results
-			all_aperture_distances.append(aperture_dimensions[0]/1e-2)
-			all_aperture_diameters.append(aperture_dimensions[1]/1e-2)
-			all_resolutions.append(resolution)
-			all_costs.append(cost)
-			# make a plot so the user can see our progress
-			fig = plt.figure(figsize=(5.5, 3), facecolor="none")
-			ax = fig.add_subplot()
-			ax.grid()
-			ax.scatter(
-				array(all_aperture_distances)[~isfinite(all_costs)],
-				array(all_aperture_diameters)[~isfinite(all_costs)],
-				s=20, zorder=2, c="k", marker="x")
-			ax.scatter(
-				array(all_aperture_distances)[isfinite(all_costs)],
-				array(all_aperture_diameters)[isfinite(all_costs)],
-				s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
-			for i in range(max(0, len(all_costs) - 10), len(all_costs)):
-				ax.text(all_aperture_distances[i], all_aperture_diameters[i], f"{all_resolutions[i]:.5g} keV, {all_costs[i]:.5g} $")
-			ax.set_xlabel("Aperture distance (cm)")
-			ax.set_ylabel("Aperture diameter (cm)")
-			fig.tight_layout()
-			fig.savefig("generated/hyperparameter_optimization.pdf")
-			plt.close(fig)
-			return cost
+	# calculate the optimal hyperparameters
+	solution = optimize.minimize(
+		objective,
+		[.50, .03],
+		method="Nelder-Mead",
+		bounds=[(.20, 3.00), (.001, .10)],
+		options=dict(
+			disp=True,
+			initial_simplex=[
+				[.40, .02],
+				[.50, .03],
+				[.30, .04],
+			],
+			xatol=0.001,
+			fatol=inf,
+		),
+	)
+	print(solution)
+	aperture_distance, aperture_diameter = solution.x
 
-		# calculate the optimal hyperparameters
-		solution = optimize.minimize(
-			objective,
-			[.50, .03],
-			method="Nelder-Mead",
-			bounds=[(.20, 3.00), (.001, .10)],
-			options=dict(
-				disp=True,
-				initial_simplex=[
-					[.40, .02],
-					[.50, .03],
-					[.30, .04],
-				],
-				xatol=0.001,
-				fatol=inf,
-			),
-		)
-		print(solution)
-		aperture_distance, aperture_diameter = solution.x
-
-		# calculate and save the optimal magnet parameters
-		foil_thickness, magnet_parameters, _, _ = optimize_parameters_and_frugality(
-			foil_diameter, aperture_distance, aperture_diameter,
-			target_resolution, target_efficiency, executor, save_name=f"{name}_electron_optics")
-		print(f"has been saved to {name}_electron_optics!")
+	# calculate and save the optimal magnet parameters
+	foil_thickness, magnet_parameters, _, _ = optimize_parameters_and_frugality(
+		foil_diameter, aperture_distance, aperture_diameter,
+		target_resolution, target_efficiency, executor=None, save_name=f"{name}_electron_optics")
+	print(f"has been saved to {name}_electron_optics!")
 
 	return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
