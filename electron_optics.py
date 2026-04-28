@@ -16,6 +16,9 @@ from numexpr import evaluate
 from scipy import optimize, stats
 
 
+os.makedirs("generated/", exist_ok=True)
+
+
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		frugality: float, order=6, method="SLSQP", save_name=None) -> tuple[list[float], float, float]:
@@ -48,7 +51,7 @@ def optimize_electron_optics(
 			objective_function,
 			initial_guess,
 			args=(script, frugality, "ignore", cache),
-			jac="2-point",
+			jac="3-point",
 			bounds=bounds,
 			constraints=reformat_constraints(script, cache),
 			method='SLSQP',
@@ -83,6 +86,8 @@ def optimize_electron_optics(
 			options=dict(
 				initial_simplex=generate_initial_sample(initial_guess, bounds, n_dims + 1),
 				maxiter=10_000,
+				xatol=0.001,
+				fatol=inf,
 			)
 		)
 		solution = result.x
@@ -100,6 +105,15 @@ def optimize_electron_optics(
 		solution = result.x
 	else:
 		raise ValueError(f"I don't support the optimization method '{method}'.")
+
+	if not result.success:
+		if method == "SLSQP":
+			print(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
+			return optimize_electron_optics(
+				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+				method="Nelder-Mead", save_name=save_name)
+		else:
+			raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 
 	# show and save the final result
 	if save_name is not None:
@@ -256,7 +270,7 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 		resolutions = []
 		for i in range(i_resolution + 1, len(lines), 3):
 			if lines[i].endswith("MeV ->"):
-				resolutions.append(float(lines[i + 1].strip()))
+				resolutions.append(read_cosy_float(lines[i + 1].strip()))
 
 		# extract the map matrix
 		i_map_start = lines.index("transfer map matrix -----------------------------------------------------------")
@@ -270,11 +284,11 @@ def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mod
 		for i in range(i_multienergy_quantities):
 			if lines[i].endswith(":"):
 				key = lines[i][:-1].strip()
-				value = float(lines[i + 1])
+				value = read_cosy_float(lines[i + 1])
 				outputs[key] = value
 			elif ":=" in lines[i]:
 				key, value = lines[i].replace(";", "").split(":=")
-				outputs[key.strip()] = float(value.strip())
+				outputs[key.strip()] = read_cosy_float(value.strip())
 
 		if cache is not None:
 			cache[run_key] = outputs
@@ -441,6 +455,10 @@ def rescale_constraint(constraint: optimize.NonlinearConstraint, scale: ndarray,
 		constraint.jac, constraint.hess, constraint.keep_feasible)
 
 
+def read_cosy_float(s: str) -> float:
+	return float(re.sub(r"([0-9])([+-])", r"\1e\2", s))
+
+
 class Script:
 	def __init__(self, content: str, parameters: list[Parameter], constraints: list[Parameter]):
 		self.content = content
@@ -460,7 +478,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .40, .04, 0.01,
-		order=12, method="SLSQP",
+		.03, .30, .04, 0.01,
+		order=9, method="SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)

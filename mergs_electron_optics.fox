@@ -29,7 +29,7 @@ VARIABLE p_dipole_field 1;
 VARIABLE p_m5_radius 1;
 VARIABLE p_m5_length 1;
 VARIABLE p_dipole_halfwidth 1;
-VARIABLE p_dipole_length 1;
+VARIABLE p_dipole_bend_angle 1;
 VARIABLE p_drift_pre_bend 1;
 
 VARIABLE p_detector_position 1;
@@ -40,7 +40,7 @@ VARIABLE detector_thickness 1;
 VARIABLE m5_required_radius 1;
 VARIABLE m5_quad_power 1;
 VARIABLE m5_hex_power 1;
-VARIABLE dipole_bend_angle 1;
+VARIABLE dipole_length 1;
 VARIABLE dipole_bend_radius 1;
 VARIABLE dipole_min_bend_radius 1;
 VARIABLE dipole_max_bend_radius 1;
@@ -263,6 +263,9 @@ PROCEDURE transform_rays project_to_detector;
 				ELSEIF TRUE;
 					nearest_valid_curvature := MAX(nearest_valid_curvature, coef_B/coef_A - SQRT(coef_B^2 + coef_A*coef_C)/coef_A);
 				ENDIF;
+				IF nearest_valid_curvature#nearest_valid_curvature;  { if the calculation failed in a nanny way, panic and set the curvature to zero }
+					nearest_valid_curvature := 0;
+				ENDIF;
 			ENDIF;
 			x := x0 + distance*sin_yaw;
 			z := z0 + distance*cos_yaw;
@@ -399,6 +402,11 @@ PROCEDURE calculate_resolution;
 		ENDLOOP;
 		{ compute resolution }
 		resolution(i_energy) := SQRT(variance)*2.355; {MeV}
+
+		IF mean#mean;  { if the mean is NaN, that probably means the map is having overflow problems }
+			position(i_energy) := 0;
+			resolution(i_energy) := 1/0;  { set the resolution to Infinity }
+		ENDIF;
 	ENDLOOP;
 ENDPROCEDURE;
 
@@ -426,7 +434,7 @@ PROCEDURE evaluate_spectrometer;
 	{ calculate by how big a margin the face intersects with the inner arc, to make sure the magnet shape isn't degenerate }
 	dipole_min_radius := dipole_min_bend_radius-1.5*dipole_gap_height; { extend it 1.5*gap_height to give the beam region some buffer }
 	dipole_max_radius := dipole_max_bend_radius+1.5*dipole_gap_height;
-	x := MAX(dipole_min_radius*COS(dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
+	x := MAX(dipole_min_radius*COS(p_dipole_bend_angle/2*PI/180),0)-dipole_bend_radius;
 	z_arc := SQRT(dipole_min_radius^2 - (x + dipole_bend_radius)^2); {positive z points into the magnet}
 	{ check the front face }
 	z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3+p_shape_in_4*x^4+p_shape_in_5*x^5;
@@ -436,7 +444,7 @@ PROCEDURE evaluate_spectrometer;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
-	system_length := p_m5_length + p_drift_pre_bend + p_dipole_length + p_detector_position; {m}
+	system_length := p_m5_length + p_drift_pre_bend + dipole_length + p_detector_position; {m}
 	IF p_detector_curvature#0;
 		detector_left_size := SIN(detector_left*p_detector_curvature)/p_detector_curvature;
 		detector_right_size := SIN(detector_right*p_detector_curvature)/p_detector_curvature;
@@ -447,12 +455,12 @@ PROCEDURE evaluate_spectrometer;
 	vertices(1) := 0 & 0; {foil}
 	vertices(2) := p_m5_length + p_drift_pre_bend &
 				   -dipole_bend_radius + dipole_max_radius; {magnet front left}
-	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(dipole_bend_angle,90)/180*PI) &
-				   -dipole_bend_radius + dipole_max_radius*COS(MIN(dipole_bend_angle,90)/180*PI); {magnet back left}
-	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) + detector_left_size*SIN(dipole_bend_angle/180*PI) &
-				   -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) + detector_left_size*COS(dipole_bend_angle/180*PI);
-	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(dipole_bend_angle/180*PI) + p_detector_position*COS(dipole_bend_angle/180*PI) - detector_right_size*SIN(dipole_bend_angle/180*PI) &
-				   -dipole_bend_radius + dipole_bend_radius*COS(dipole_bend_angle/180*PI) - p_detector_position*SIN(dipole_bend_angle/180*PI) - detector_right_size*COS(dipole_bend_angle/180*PI);
+	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(p_dipole_bend_angle,90)/180*PI) &
+				   -dipole_bend_radius + dipole_max_radius*COS(MIN(p_dipole_bend_angle,90)/180*PI); {magnet back left}
+	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) + detector_left_size*SIN(p_dipole_bend_angle/180*PI) &
+				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI) + detector_left_size*COS(p_dipole_bend_angle/180*PI);
+	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) - detector_right_size*SIN(p_dipole_bend_angle/180*PI) &
+				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI) - detector_right_size*COS(p_dipole_bend_angle/180*PI);
 	system_depth := 0;
 	system_width := 0;
 	system_diagonal := 0;
@@ -467,7 +475,7 @@ PROCEDURE evaluate_spectrometer;
 	{ estimate the power draw }
 	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
 	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
-	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * dipole_bend_angle/180*PI*(dipole_min_radius + dipole_max_radius)/2;
+	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * p_dipole_bend_angle/180*PI*dipole_bend_radius;
 	{ technically you have to multiply by the resistance-per-length of your cables to get power }
 
 ENDPROCEDURE;
@@ -610,7 +618,6 @@ PROCEDURE optimize_detector;
 		p_detector_curvature := nearest_valid_curvature;
 		calculate_resolution;
 	ENDIF;
-	p_detector_curvature := p_detector_curvature;
 
 	{ calculate the residuals at the initial point }
 	cost := 0;
@@ -757,10 +764,10 @@ PROCEDURE elt_spectrometer;
 
 	central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
-	dipole_bend_angle := p_dipole_length/dipole_bend_radius*180/PI;
-	IF dipole_bend_angle>180;
+	dipole_length := p_dipole_bend_angle/180*PI*dipole_bend_radius;
+	IF p_dipole_bend_angle>180;
 		WRITE 6 'warning; the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
-		dipole_bend_angle := 180;
+		p_dipole_bend_angle := 180;
 	ENDIF;
 
 	shape_in(1) := p_shape_in_1;
@@ -800,7 +807,7 @@ PROCEDURE elt_spectrometer;
 	dipole_max_bend_radius := dipole_bend_radius+beam_max_x;
 
 	ELT_BENDING
-		dipole_bend_radius dipole_bend_angle p_dipole_halfwidth
+		dipole_bend_radius p_dipole_bend_angle p_dipole_halfwidth
 		shape_zero shape_in shape_out 5;
 
 	calculate_beam_size FALSE;
@@ -823,6 +830,8 @@ PROCEDURE main;
 
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
+	{ set the display mode (0 means flatten it; 1 means show in real space) }
+	y_scale := 0;
 
 	IF output_mode=1;
 		out := 6;
@@ -844,30 +853,30 @@ PROCEDURE main;
 	foil_height := 0.03;
 	aperture_width := 0.04;
 	aperture_height := 0.04;
-	drift_pre_aperture := 0.40;
+	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.024186200626871376; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.020590243851852867; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.1576963658748236; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.1717242445941401; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.09136115296036379; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.22733094317328922; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_length := (0.5110 + central_energy)*1e6/2.998e8/p_dipole_field*PI/3;
+	p_dipole_bend_angle := 60; {{PARAM |min=5 |max=60 |bias=0 |unit=deg}}
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.34080123264844736; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.22399737953347676; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 3.6430622244711115; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.472686500619721;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_in_4 := -0.018913686095601595; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
-	p_shape_in_5 := 0.002842041275367079; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
-	p_shape_out_1 := 0.11587244432675899; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -2.4351817496054107; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 3.527044594495395; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
-	p_shape_out_4 := -0.21708617912594388; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
-	p_shape_out_5 := -0.0023782056471346735; {{PARAM |min=-1000 |max=1000 |bias=0 |unit=1/m^3}}
-	p_detector_position := 0; {{CONSTRAINT |min=0 |max=2 |bias=0 |unit=m}}
-	p_detector_tilt := 0; {{CONSTRAINT |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_detector_curvature := 0; {{CONSTRAINT |min=-10 |max=10 |bias=1/0.5 |unit=rad/m}}
+	p_drift_pre_bend := 0.12339998837424242; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.1681516126509858; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 5.299897195029256; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 11.829181134536364;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_in_4 := 0;
+	p_shape_in_5 := 0;
+	p_shape_out_1 := -0.3529349022286989; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -1.091208652784155; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 0.8453135854258154; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_4 := 0;
+	p_shape_out_5 := 0;
+	p_detector_position := 0;
+	p_detector_tilt := 0;
+	p_detector_curvature := 0;
 
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
@@ -891,7 +900,7 @@ PROCEDURE main;
 	WRITE out 'p_m5_radius := '&SF(p_m5_radius, '(G21.15)')&';';
 	WRITE out 'p_m5_length := '&SF(p_m5_length, '(G21.15)')&';';
 	WRITE out 'p_dipole_halfwidth := '&SF(p_dipole_halfwidth, '(G21.15)')&';';
-	WRITE out 'p_dipole_length := '&SF(p_dipole_length, '(G21.15)')&';';
+	WRITE out 'p_dipole_bend_angle := '&SF(p_dipole_bend_angle, '(G21.15)')&';';
 	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G21.15)')&';';
 	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G21.15)')&';';
 	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G21.15)')&';';
@@ -908,7 +917,7 @@ PROCEDURE main;
 	WRITE out 'p_detector_tilt := '&SF(p_detector_tilt, '(G21.15)')&';';
 	WRITE out 'p_detector_curvature := '&SF(p_detector_curvature, '(G21.15)')&';';
 	WRITE out '';
-	WRITE out 'dipole_bend_angle := '&SF(dipole_bend_angle, '(G21.15)')&';';
+	WRITE out 'dipole_length := '&SF(dipole_length, '(G21.15)')&';'; {{CONSTRAINT |min=0 |max=inf |bias=-1/0.01 |unit=m}}
 	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G21.15)')&';';
 	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G21.15)')&';';
 	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G21.15)')&';';
@@ -943,12 +952,12 @@ PROCEDURE main;
 	WRITE out '';
 
 	WRITE out 'm5 beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
-	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
+	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/5000000 |unit=A^2*m}}
+	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/5000000 |unit=A^2*m}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'dipole aspect ratio:' p_dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
+	WRITE out 'dipole aspect ratio:' dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=30 |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/2.0 |unit=cm}}

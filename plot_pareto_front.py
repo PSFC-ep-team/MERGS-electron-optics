@@ -8,13 +8,15 @@ from concurrent.futures.process import ProcessPoolExecutor
 from typing import Sequence, Callable
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.ticker import MultipleLocator
-from numpy import geomspace, stack, concatenate, array
+from numpy import inf, geomspace, stack, concatenate, array, loadtxt, savetxt
 from numpy.ma.core import empty_like
 from scipy import optimize
 
 from hyperparameters import calculate_resolution, optimize_foil_thickness
+
+
+ORDER = 9
 
 
 def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]):
@@ -22,8 +24,8 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 
 	for design in designs:
 		if type(design) is str:
-			name = str(design)
-			label = name
+			name = os.path.basename(str(design))
+			label = str(design)
 		elif len(design) == 3:
 			foil_diameter, aperture_distance, aperture_diameter = design
 			name = f"{foil_diameter*100}-{aperture_distance*100}-{aperture_diameter*100}"
@@ -36,7 +38,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 			raise ValueError(f"wth does {design} mean?")
 
 		if os.path.isfile(f"generated/{name}_pareto_front.txt"):
-			front = np.loadtxt(f"generated/{name}_pareto_front.txt")
+			front = loadtxt(f"generated/{name}_pareto_front.txt")
 			resolutions = front[:, 0]
 			efficiencies = front[:, 1]
 			hyperparameters = front[:, 2:]
@@ -44,7 +46,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 
 		else:
 			if type(design) is str:
-				resolutions, efficiencies, hyperparameters = find_pareto_front_of_magnet_design(name)
+				resolutions, efficiencies, hyperparameters = find_pareto_front_of_magnet_design(design)
 			elif len(design) == 3:
 				foil_diameter, aperture_distance, aperture_diameter = design
 				resolutions, efficiencies, hyperparameters = find_pareto_front_of_aperture_design(foil_diameter, aperture_distance, aperture_diameter)
@@ -54,7 +56,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 			else:
 				raise ValueError(f"wth does {design} mean?")
 
-			np.savetxt(
+			savetxt(
 				f"generated/{name}_pareto_front.txt",
 				concatenate([
 					stack([resolutions, efficiencies], axis=1),
@@ -163,6 +165,7 @@ def find_suitable_hyperparameters(
 				[.50, .03],
 			],
 			xatol=0.001,  # it doesn't need to be more precise than the nearest millimeter
+			fatol=inf,
 			disp=True,
 		)
 	)
@@ -208,7 +211,7 @@ def find_suitable_configuration(
 			foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
 		resolution = calculate_resolution(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-			magnet_system_filename, parameters=None, executor=None)
+			magnet_system_filename, parameters=None, executor=None, order=ORDER)
 		print(f"{efficiency:.3g}: {hyperparameters} -> {resolution:.2f}")
 		return resolution
 
@@ -227,6 +230,7 @@ def find_suitable_configuration(
 				[max_foil_diameter*0.8, max_aperture_diameter*0.6],
 			],
 			xatol=0.001,  # it doesn't need to be more precise than the nearest millimeter
+			fatol=inf,
 			disp=True,
 		)
 	)
@@ -253,4 +257,4 @@ def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwa
 
 
 if __name__ == "__main__":
-	plot_pareto_fronts("mergs_electron_optics", (.03,))
+	plot_pareto_fronts("generated/medium")

@@ -9,7 +9,6 @@ from typing import Optional
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
-from matplotlib.colors import LogNorm
 from numpy import log1p, inf, degrees, zeros, isfinite, array
 from scipy import optimize
 
@@ -22,10 +21,17 @@ for material in FOIL_MATERIALS.values():
 		if interaction["type"] == "pair_production":
 			material["interactions"].remove(interaction)
 
+# fix the annoying plot style changes that Nick makes in MPR_Tools
 plt.rcParams["font.size"] = 12
 plt.rcParams['xtick.labelsize'] = 12
 plt.rcParams['ytick.labelsize'] = 12
-plt.rcParams['lines.linewidth'] = 1.2
+plt.rcParams['lines.linewidth'] = 1.5
+
+
+# avoid using super high orders when you're just trying to work out the aperture geometry
+SCAN_ORDER = 5
+# go up to 9th order in the final scan since it's the highest order supported by MPR_Tools
+FINAL_ORDER = 9
 
 
 def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
@@ -92,6 +98,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 					[.30, .04],
 				],
 				xatol=0.001,
+				fatol=inf,
 			),
 		)
 		print(solution)
@@ -101,6 +108,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 		foil_thickness, magnet_parameters, _, _ = optimize_parameters_and_frugality(
 			foil_diameter, aperture_distance, aperture_diameter,
 			target_resolution, target_efficiency, executor, save_name=f"{name}_electron_optics")
+		print(f"has been saved to {name}_electron_optics!")
 
 	return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
@@ -133,22 +141,22 @@ def optimize_parameters_and_frugality(
 		return foil_thickness, None, best_possible_resolution, inf
 	best_practical_resolution = optimize_parameters(
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 0.001,
-		cache, executor)[1]
+		cache, executor, final=False)[1]
 	if best_practical_resolution > target_resolution:
 		print(f"It is infeasible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
 		return foil_thickness, None, best_practical_resolution, inf
 	cheapest_resolution = optimize_parameters(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 100.,
-		cache, executor)[1]
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 10.,
+		cache, executor, final=False)[1]
 	if cheapest_resolution <= target_resolution:
 		print(f"The hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] automatically achieve efficiency {target_efficiency:.2g} and resolution {cheapest_resolution:.0f} keV.")
-		parameters, resolution, cost = cache[100.]
+		parameters, resolution, cost = cache[10.]
 		return foil_thickness, parameters, resolution, cost
 
 	optimum = optimize.root_scalar(
 		lambda frugality: optimize_parameters(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-			cache, executor, save_name)[1] - target_resolution,
+			cache, executor, final=False, save_name=save_name)[1] - target_resolution,
 		bracket=(0.001, 100),
 		rtol=0.02,  # note the large tolerance; we don't need to get the frugality _that_ precisely
 	)
@@ -162,7 +170,7 @@ def optimize_parameters_and_frugality(
 def optimize_parameters(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float,
 		frugality: float, cache: dict[float, tuple[list[float], float, float]], executor: Optional[Executor],
-		save_name: str = None) -> tuple[list[float], float, float]:
+		final=True, save_name: str = None) -> tuple[list[float], float, float]:
 	"""
 	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves the given efficiency with the best resolution
 	:param foil_diameter: the foil diameter in m
@@ -172,6 +180,7 @@ def optimize_parameters(
 	:param frugality: how much to wey cost when evaluating performance
 	:param cache: the cache of previus optimizations with these hyperparameters and target efficiency
 	:param executor: the process pool to use for the multiprocessed bits
+	:param final: whether to make this calculation accurate (otherwise we'll just do something quick and easy)
 	:param save_name: a filename at which to save the optimal magnet parameters
 	:return: the optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
 	"""
@@ -179,9 +188,11 @@ def optimize_parameters(
 	if frugality in cache:
 		return cache[frugality]
 
+	order = FINAL_ORDER if final else SCAN_ORDER
+
 	# check the permanent cache
 	try:
-		parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality)
+		parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order)
 		print("loading a previus optimized magnet system from the cache...")
 
 	# optimize the magnet parameters
@@ -189,13 +200,13 @@ def optimize_parameters(
 		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			save_name=save_name)
-		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, parameters, cost)
+			order=order, save_name=save_name)
+		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
 
 	# calculate the resolution
 	total_resolution = calculate_resolution(
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, "mergs_electron_optics", parameters,
-		executor)
+		order=order, executor=executor)
 
 	# print, save, and return
 	print(f"\t{total_resolution:.0f} keV, {cost:.2f} $")
@@ -237,7 +248,7 @@ def calculate_resolution(
 		foil_diameter: float, foil_thickness: float,
 		aperture_distance: float, aperture_diameter: float,
 		magnet_system_filename: Optional[str], parameters: Optional[list[float]],
-		executor: Optional[Executor]) -> float:
+		executor: Optional[Executor], order: Optional[int] = None) -> float:
 	"""
 	evaluate a complete design to determine its total energy resolution
 	:param foil_diameter: the foil diameter in m
@@ -247,6 +258,7 @@ def calculate_resolution(
 	:param magnet_system_filename: name of a file containing the electron optics configuration and default parameters,
 	                               or None to neglect the electron optics and just worry about the foil and aperture
 	:param parameters: the electron optics parameters, if different from what's currently in the file
+	:param order: the number of COSY orders to use in the calculation
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: resolution at 16.7 MeV (keV)
 	"""
@@ -257,7 +269,9 @@ def calculate_resolution(
 
 	if magnet_system_filename is not None:
 		# use COSY to get the transfer map matrix and optimal detector shape
-		cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order=3)
+		if order is None:
+			raise TypeError("You have to pass an order if we're using COSY")
+		cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
 		cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
 		map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
 		with open(map_filename, "w") as file:
@@ -267,6 +281,7 @@ def calculate_resolution(
 
 	else:
 		# or make the map ideal so that we don't have to worry about the magnets
+		order = 1
 		map_filename = f"generated/ideal_map.txt"
 		ideal_map = (
 			"0.0  0.0  0.0  0.0  0.0  100000\n"
@@ -304,9 +319,20 @@ def calculate_resolution(
 
 	try:
 		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-			incident_energy=16.7, num_recoil_particles=10_000, executor=executor, max_workers=8 if executor else 1)
-	except ValueError:
-		return inf  # an aperture that's much smaller than the foil can make this calculation arbitrarily slow.  return inf to discourage that.
+			incident_energy=16.7, num_recoil_particles=10_000, map_order=order,
+			executor=executor, max_workers=8 if executor else 1)
+	except ValueError as e:
+		# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
+		if str(e) == "Some of these rays don't hit the curved detector.":
+			print("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
+			return inf  # shikatanai.  just avoid that geometry, I gess, since the map is probably not even converged.
+		# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
+		elif str(e) == "Failed to generate electron":
+			print("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
+			return inf  # return inf to discourage that, but also print in case it's happening a lot
+		# if it's something else, then I'm scared and confused and we should probably stop.
+		else:
+			raise e
 
 	return min(5000, resolution)  # don't report resolutions above 5 MeV because it gets hard to define then
 
@@ -319,9 +345,9 @@ def calculate_foil_broadening(foil_thickness: float) -> float:
 	return (initial_energy - min_exit_energy)*1000
 
 
-def find_in_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float) -> tuple[list[float], float]:
+def find_in_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int) -> tuple[list[float], float]:
 	try:
-		key_string = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}"
+		key_string = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}"
 		with open("generated/magnet_optimization_cache.txt", mode="r") as file:
 			for line in file.readlines():
 				input_string, output_string = line.split(": ")
@@ -335,9 +361,10 @@ def find_in_permanent_cache(foil_diameter: float, aperture_distance: float, aper
 		raise ValueError("cache is empty")
 
 
-def append_to_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, parameters: list[float], cost: float):
+def append_to_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int, parameters: list[float], cost: float):
 	with open("generated/magnet_optimization_cache.txt", mode="a") as file:
-		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}: {', '.join(str(x) for x in parameters)}, {cost}\n")
+		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
+		           f"{', '.join(str(x) for x in parameters)}, {cost}\n")
 
 
 if __name__ == "__main__":

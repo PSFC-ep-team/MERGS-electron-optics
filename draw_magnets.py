@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Tuple, Dict, List, Optional
 
-from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where
+from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where, argmin, argmax
 
 FILE_TO_OPTIMIZE = "mergs_ion_optics"
 PARAMETER_STRING = """
@@ -11,36 +11,36 @@ foil_width := 0.300000000000000E-01;
 foil_height := 0.300000000000000E-01;
 aperture_width := 0.400000000000000E-01;
 aperture_height := 0.400000000000000E-01;
-p_m5_quad_field := 0.241862006268714E-01;
+p_m5_quad_field := 0.205902438518529E-01;
 p_m5_hex_field :=  0.00000000000000;
-p_dipole_field := 0.157696365874824;
-p_m5_radius := 0.429310611485350E-01;
-p_m5_length := 0.171724244594140;
+p_dipole_field := 0.913611529603638E-01;
+p_m5_radius := 0.568327357933223E-01;
+p_m5_length := 0.227330943173289;
 p_dipole_halfwidth := 0.150000000000000;
-p_dipole_length := 0.310344774634725;
-drift_pre_aperture := 0.400000000000000;
-p_drift_pre_bend := 0.340801232648447;
-p_shape_in_1 := 0.223997379533477;
-p_shape_in_2 :=  3.64306222447111;
-p_shape_in_3 :=  11.4726865006197;
-p_shape_in_4 := -.189136860956016E-01;
-p_shape_in_5 := 0.284204127536708E-02;
-p_shape_out_1 := 0.115872444326759;
-p_shape_out_2 := -2.43518174960541;
-p_shape_out_3 :=  3.52704459449540;
-p_shape_out_4 := -.217086179125944;
-p_shape_out_5 := -.237820564713467E-02;
-p_detector_position := 0.852793377106638;
-p_detector_tilt := 0.161547726009394;
-p_detector_curvature := -1.13501697799543;
+p_dipole_bend_angle :=  60.0000000000000;
+drift_pre_aperture := 0.300000000000000;
+p_drift_pre_bend := 0.123399988374242;
+p_shape_in_1 := 0.168151612650986;
+p_shape_in_2 :=  5.29989719502926;
+p_shape_in_3 :=  11.8291811345364;
+p_shape_in_4 :=  0.00000000000000;
+p_shape_in_5 :=  0.00000000000000;
+p_shape_out_1 := -.352934902228699;
+p_shape_out_2 := -1.09120865278415;
+p_shape_out_3 := 0.845313585425815;
+p_shape_out_4 :=  0.00000000000000;
+p_shape_out_5 :=  0.00000000000000;
+p_detector_position :=  1.09707530355881;
+p_detector_tilt := 0.416380597365347;
+p_detector_curvature := -1.56663754434072;
 
-dipole_bend_angle :=  60.0000000000000;
-dipole_max_bend_radius := 0.491303757068937;
-dipole_central_bend_radius := 0.296357429675140;
-dipole_min_bend_radius := 0.187826930466530;
-dipole_gap_height := 0.105318956912573;
-detector_right := 0.442622006062569;
-detector_left := 0.220093363331095;
+dipole_length := 0.535678913217847;
+dipole_max_bend_radius := 0.798793126796942;
+dipole_central_bend_radius := 0.511535681692289;
+dipole_min_bend_radius := 0.343082269288342;
+dipole_gap_height := 0.169797553975571;
+detector_right := 0.500444313462704;
+detector_left := 0.274766362951057;
 """
 CENTRAL_ENERGY = 13.5
 
@@ -80,7 +80,7 @@ def draw_magnets():
 	)
 	x, y, θ = draw_bending_magnet(
 		paths, x, y, θ,
-		parameters["p_dipole_length"],
+		parameters["dipole_length"],
 		parameters["p_dipole_field"],
 		parameters["dipole_min_bend_radius"],
 		parameters["dipole_max_bend_radius"],
@@ -142,6 +142,7 @@ def draw_detector(
 ) -> None:
 	if curvature == 0:
 		draw_plane(graphic, x, y, θ + tilt, left, right)
+		return
 
 	R = 1/curvature
 	x_center = x + R*cos(θ + tilt)
@@ -214,7 +215,8 @@ def draw_bending_magnet(
 	ξ = linspace(min_extended_radius - central_bend_radius, max_extended_radius - central_bend_radius, 101)
 	ζ_back = evaluate_polynomial(
 		ξ, [0] + in_shape_parameters,
-		lower_breakpoint=min_bend_radius - central_bend_radius, upper_breakpoint=max_bend_radius - central_bend_radius)
+		lower_breakpoint=min_bend_radius - central_bend_radius, upper_breakpoint=max_bend_radius - central_bend_radius,
+		bias_toward_zero=True)
 	x_back = x_center + (central_bend_radius + ξ)*sin(θ) + ζ_back*cos(θ)
 	y_back = y_center - (central_bend_radius + ξ)*cos(θ) + ζ_back*sin(θ)
 	R_back = hypot(x_back - x_center, y_back - y_center)
@@ -223,7 +225,8 @@ def draw_bending_magnet(
 	y_back = y_back[within_radius]
 	ζ_front = -evaluate_polynomial(
 		ξ, [0] + out_shape_parameters,
-		lower_breakpoint=min_bend_radius - central_bend_radius, upper_breakpoint=max_bend_radius - central_bend_radius)
+		lower_breakpoint=min_bend_radius - central_bend_radius, upper_breakpoint=max_bend_radius - central_bend_radius,
+		bias_toward_zero=True)
 	x_front = x_center + (central_bend_radius + ξ)*sin(θ + bend_angle) + ζ_front*cos(θ + bend_angle)
 	y_front = y_center - (central_bend_radius + ξ)*cos(θ + bend_angle) + ζ_front*sin(θ + bend_angle)
 	R_front = hypot(x_front - x_center, y_front - y_center)
@@ -271,11 +274,25 @@ def draw_bending_magnet(
 	return x, y, θ
 
 
-def evaluate_polynomial(x, coefficients, lower_breakpoint=-inf, upper_breakpoint=inf):
+def evaluate_polynomial(x, coefficients, lower_breakpoint=-inf, upper_breakpoint=inf, bias_toward_zero=False):
 	"""
 	evaluate the polynomial defined by some coefficients.  if you want, you can also specify upper and lower
 	"breakpoints"; outside of these breakpoints, all derivatives greater than 1 will be set to zero.
+	if bias_toward_zero is turned on, then the breakpoints will be intelligently turned off if doing so causes the polynomial to end up closer to zero
 	"""
+	if bias_toward_zero:
+		values = evaluate_polynomial(x, coefficients)
+		flattened_values = evaluate_polynomial(x, coefficients, lower_breakpoint, upper_breakpoint)
+		if any(x < 0):
+			lowest = argmin(x)
+			if abs(flattened_values[lowest]) < abs(values[lowest]):
+				values[x < 0] = flattened_values[x < 0]
+		if any(x > 0):
+			uppest = argmax(x)
+			if abs(flattened_values[uppest]) < abs(values[uppest]):
+				values[x > 0] = flattened_values[x > 0]
+		return values
+
 	y_middle = zeros_like(x)
 	for i, coefficient in enumerate(coefficients):
 		y_middle += coefficient*x**i
