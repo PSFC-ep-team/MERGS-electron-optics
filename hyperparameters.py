@@ -9,7 +9,7 @@ from typing import Optional
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
-from numpy import log1p, inf, degrees, zeros, isfinite, array
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array
 from scipy import optimize
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
@@ -69,10 +69,11 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			array(all_aperture_distances)[~isfinite(all_costs)],
 			array(all_aperture_diameters)[~isfinite(all_costs)],
 			s=20, zorder=2, c="k", marker="x")
-		ax.scatter(
-			array(all_aperture_distances)[isfinite(all_costs)],
-			array(all_aperture_diameters)[isfinite(all_costs)],
-			s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
+		if any(isfinite(all_costs)):
+			ax.scatter(
+				array(all_aperture_distances)[isfinite(all_costs)],
+				array(all_aperture_diameters)[isfinite(all_costs)],
+				s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
 		for i in range(max(0, len(all_costs) - 10), len(all_costs)):
 			ax.text(all_aperture_distances[i], all_aperture_diameters[i], f"{all_resolutions[i]:.5g} keV, {all_costs[i]:.5g} $")
 		ax.set_xlabel("Aperture distance (cm)")
@@ -130,19 +131,21 @@ def optimize_parameters_and_frugality(
 
 	foil_thickness = optimize_foil_thickness(
 		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor)
+
 	best_possible_resolution = calculate_resolution(
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 		magnet_system_filename=None, parameters=None, executor=executor)
-
 	if best_possible_resolution > target_resolution:
 		print(f"It is not possible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
 		return foil_thickness, None, best_possible_resolution, inf
+
 	best_practical_resolution = optimize_parameters(
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 0.001,
 		cache, executor, final=False)[1]
 	if best_practical_resolution > target_resolution:
 		print(f"It is infeasible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
 		return foil_thickness, None, best_practical_resolution, inf
+
 	cheapest_resolution = optimize_parameters(
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 10.,
 		cache, executor, final=False)[1]
@@ -332,7 +335,7 @@ def calculate_resolution(
 		else:
 			raise e
 
-	return min(5000, resolution)  # don't report resolutions above 5 MeV because it gets hard to define then
+	return min(5000, abs(resolution))  # don't report resolutions above 5 MeV because it gets hard to define then
 
 
 def calculate_foil_broadening(foil_thickness: float) -> float:
