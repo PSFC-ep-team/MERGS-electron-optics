@@ -263,7 +263,7 @@ def calculate_resolution(
 		with open(map_filename, "w") as file:
 			file.write(cosy_outputs["map"])
 		tilt_angle = degrees(cosy_outputs["p_detector_tilt"])
-		arc_radius = 100/cosy_outputs["p_detector_curvature"]
+		arc_radius = -100/cosy_outputs["p_detector_curvature"]
 
 	else:
 		# or make the map ideal so that we don't have to worry about the magnets
