@@ -473,10 +473,9 @@ PROCEDURE evaluate_spectrometer;
 	ENDLOOP;
 
 	{ estimate the power draw }
-	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
-	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length;
-	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * p_dipole_bend_angle/180*PI*dipole_bend_radius;
-	{ technically you have to multiply by the resistance-per-length of your cables to get power }
+	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
+	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
+	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * p_dipole_bend_angle/180*PI*dipole_length * 16.78e-9/0.01^2;
 
 ENDPROCEDURE;
 
@@ -952,14 +951,14 @@ PROCEDURE main;
 	WRITE out '';
 
 	WRITE out 'm5 beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/5000000 |unit=A^2*m}}
-	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/5000000 |unit=A^2*m}}
+	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
+	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
-	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/2000000 |unit=A^2*m}}
-	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=30 |max=inf |bias=-1/1.0 |unit=cm}}
+	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
+	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=50 |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/2.0 |unit=cm}}
 	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
 	WRITE out 'system length:' system_length*100 'cm';
