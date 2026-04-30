@@ -147,18 +147,18 @@ def optimize_parameters_and_frugality(
 		return foil_thickness, None, best_practical_resolution, inf
 
 	cheapest_resolution = optimize_parameters(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 10.,
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 1.0,
 		cache, executor, final=False)[1]
 	if cheapest_resolution <= target_resolution:
 		print(f"The hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] automatically achieve efficiency {target_efficiency:.2g} and resolution {cheapest_resolution:.0f} keV.")
-		parameters, resolution, cost = cache[10.]
+		parameters, resolution, cost = cache[1.0]
 		return foil_thickness, parameters, resolution, cost
 
 	optimum = optimize.root_scalar(
 		lambda frugality: optimize_parameters(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 			cache, executor, final=False, save_name=save_name)[1] - target_resolution,
-		bracket=(0.001, 10),
+		bracket=(0.001, 1.0),
 		rtol=0.02,  # note the large tolerance; we don't need to get the frugality _that_ precisely
 	)
 	magnet_parameters, resolution, cost = cache[optimum.root]

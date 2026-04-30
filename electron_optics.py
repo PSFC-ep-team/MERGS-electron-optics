@@ -10,7 +10,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Union, Any, Optional, Literal, Callable, Sequence
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -21,7 +21,7 @@ os.makedirs("generated/", exist_ok=True)
 
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order=6, method="SLSQP", save_name=None) -> tuple[list[float], float, float]:
+		frugality: float, order=6, method="basin hopping", save_name=None) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
@@ -29,7 +29,7 @@ def optimize_electron_optics(
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
-	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", or "differential evolution"
+	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
 	:param save_name: a filename for the final solution
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
@@ -53,7 +53,7 @@ def optimize_electron_optics(
 			args=(script, frugality, "ignore", cache),
 			jac="3-point",
 			bounds=bounds,
-			constraints=reformat_constraints(script, cache),
+			constraints=reformat_constraints(script, cache, jac="3-point"),
 			method='SLSQP',
 			options=dict(
 				ftol=1e-3,
@@ -103,6 +103,37 @@ def optimize_electron_optics(
 			updating="deferred",
 		)
 		solution = result.x
+	elif method == "basin hopping":
+		rng = random.default_rng(seed=0)
+
+		def take_step(x):
+			for i, (lower, upper) in enumerate(bounds):
+				x[i] += (upper - lower)*rng.uniform(-0.05, 0.05)
+				if x[i] < lower:
+					x[i] = 2*lower - x[i]
+				elif x[i] > upper:
+					x[i] = 2*upper - x[i]
+			return x
+
+		objective_function(initial_guess, script, frugality, "ignore", cache, True)
+		result = optimize.basinhopping(
+			objective_function,
+			initial_guess,
+			niter=10,
+			T=0.,
+			take_step=take_step,
+			minimizer_kwargs=dict(
+				args=(script, frugality, "ignore", cache),
+				jac="3-point",
+				bounds=bounds,
+				constraints=reformat_constraints(script, cache, jac="3-point"),
+				method='SLSQP',
+				options=dict(
+					ftol=1e-3,
+				)
+			)
+		)
+		solution = result.x
 	else:
 		raise ValueError(f"I don't support the optimization method '{method}'.")
 
@@ -129,7 +160,7 @@ def optimize_electron_optics(
 
 	# extract the performance metrics
 	resolution = estimate_resolution(script, solution, cache)
-	cost = estimate_cost(script, solution, "inf", cache)
+	cost = estimate_cost(script, solution, "ignore", cache)
 
 	return solution, resolution, cost
 
@@ -359,13 +390,13 @@ def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 	raise ValueError(f"You seem to have tried to specify a {variable_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
 
 
-def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]]) -> list[optimize.NonlinearConstraint]:
+def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **kwargs) -> list[optimize.NonlinearConstraint]:
 	constraints = []
 	for constraint in script.constraints:
 		def constraint_function(x, name=constraint.name):
 			return run_cosy(script, x, output_mode="none", cache=cache)[name]
 		constraints.append(optimize.NonlinearConstraint(
-			constraint_function, constraint.min, constraint.max))
+			constraint_function, constraint.min, constraint.max, **kwargs))
 	return constraints
 
 
