@@ -3,8 +3,8 @@ PROCEDURE mergs_ion_optics;
 
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
-VARIABLE beam_d_energy 1 5;
-VARIABLE beam_color 1 5;
+VARIABLE beam_photon_energies 1 5;
+VARIABLE beam_colors 1 5;
 
 VARIABLE foil_width 1;
 VARIABLE foil_height 1;
@@ -53,6 +53,8 @@ VARIABLE current_map_position 1;  { tracks the distance between the plane where 
 VARIABLE input_rays 1 500 8;  { tracks the rays that have been defined with SR }
 VARIABLE output_rays 1 500 8;  { tracks the defined rays with the map applied }
 VARIABLE num_rays 1;  { tracks the size of input_rays and output_rays }
+VARIABLE ray_photon_energies 1 500;
+VARIABLE ray_weights 1 500;
 VARIABLE num_characteristic_rays 1;
 VARIABLE num_dispersive_rays 1;
 
@@ -340,9 +342,10 @@ PROCEDURE calculate_resolution;
 	VARIABLE momentum_ratio 1;
 	VARIABLE x 1;
 	VARIABLE z 1;
+	VARIABLE weight_sum 1;
 	VARIABLE mean 1;
 	VARIABLE variance 1;
-	VARIABLE d_energy 1;
+	VARIABLE photon_energy 1;
 	VARIABLE i_energy 1;
 	VARIABLE i_ray 1;
 	VARIABLE i_depth 1;
@@ -355,35 +358,42 @@ PROCEDURE calculate_resolution;
 	transform_rays TRUE;
 
 	LOOP i_energy 1 num_energies;
-		d_energy := beam_d_energy(i_energy);
-		momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+		photon_energy := beam_photon_energies(i_energy);
 		{ calculate the dispersion at each energy }
 		LOOP i_ray 1 num_rays;
 			IF (input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0);
-				IF input_rays(i_ray,6)=d_energy-0.05;
+				IF ray_photon_energies(i_ray)=photon_energy-0.5;
 					x_right := output_rays(i_ray,1); {m}
-				ELSEIF input_rays(i_ray,6)=d_energy;
+				ELSEIF ray_photon_energies(i_ray)=photon_energy;
 					x_center := output_rays(i_ray,1); {m}
-				ELSEIF input_rays(i_ray,6)=d_energy+0.05;
+				ELSEIF ray_photon_energies(i_ray)=photon_energy+0.5;
 					x_left := output_rays(i_ray,1); {m}
 				ENDIF;
 			ENDIF;
 		ENDLOOP;
-		IF d_energy<-0.1;
+		IF photon_energy<0.85*central_energy;
 			dispersion(i_energy) := (x_left - x_center)/(0.05*central_energy); {m/MeV}
-		ELSEIF d_energy>0.1;
+		ELSEIF photon_energy>1.15*central_energy;
 			dispersion(i_energy) := (x_center - x_right)/(0.05*central_energy); {m/MeV}
 		ELSEIF TRUE;
 			dispersion(i_energy) := (x_left - x_right)/(0.10*central_energy); {m/MeV}
 		ENDIF;
+		{ calculate the normalization factor for means and variances }
+		weight_sum := 0;
+		LOOP i_ray 1 num_characteristic_rays;
+			IF ray_photon_energies(i_ray)=photon_energy;
+				weight_sum := weight_sum + 2*ray_weights(i_ray);
+			ENDIF;
+		ENDLOOP;
 		{ calculate the position of the beamspot for each energy }
 		mean := 0;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF input_rays(i_ray,6)=d_energy;
+			IF ray_photon_energies(i_ray)=photon_energy;
 				LOOP i_depth 1 2;
 					z := (i_depth - 1.5)*detector_thickness;
+					momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
-					mean := mean + x/(2*num_characteristic_rays/num_energies); {m}
+					mean := mean + x*ray_weights(i_ray)/weight_sum; {m}
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
@@ -391,12 +401,13 @@ PROCEDURE calculate_resolution;
 		{ calculate the width of the beamspot at each energy }
 		variance := 0;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF input_rays(i_ray,6)=d_energy;
+			IF ray_photon_energies(i_ray)=photon_energy;
 				LOOP i_depth 1 2;
 					z := (i_depth - 1.5)*detector_thickness;
+					momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
 					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
-					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy); {MeV}
-					variance := variance + ((x - mean)/dispersion(i_energy))^2/(2*num_characteristic_rays/num_energies); {MeV^2}
+					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy)*SQRT(ray_weights(i_ray)/weight_sum); {MeV}
+					variance := variance + ((x - mean)/dispersion(i_energy))^2*ray_weights(i_ray)/weight_sum; {MeV^2}
 				ENDLOOP;
 			ENDIF;
 		ENDLOOP;
@@ -481,9 +492,20 @@ ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
 
+FUNCTION calculate_photon_angle photon_energy tan_electron_angle;
+	calculate_photon_angle := PI - 2*ATAN((1 + photon_energy/0.5110)*tan_electron_angle);
+ENDFUNCTION;
+
+FUNCTION calculate_electron_energy photon_energy photon_angle;
+    calculate_electron_energy := photon_energy*(1 - 1/(1 + photon_energy/0.5110*(1 - COS(photon_angle))));
+ENDFUNCTION;
+
 PROCEDURE gen_rays;
 	VARIABLE i_energy 1;
-	VARIABLE d_energy 1;
+	VARIABLE step 1;
+	VARIABLE photon_angle 1;
+	VARIABLE photon_energy 1;
+	VARIABLE energy_fraction 1;
 	VARIABLE color 1;
 	VARIABLE momentum_ratio 1;
 	VARIABLE theta_foil 1;
@@ -492,8 +514,10 @@ PROCEDURE gen_rays;
 	VARIABLE theta_aperture 1;
 	VARIABLE x_aperture 1;
 	VARIABLE y_aperture 1;
-	VARIABLE x_angle 1;
-	VARIABLE y_angle 1;
+	VARIABLE tan_x_angle 1;
+	VARIABLE tan_y_angle 1;
+	VARIABLE tan_angle 1;
+	VARIABLE energy 1;
 
 	CLEAR_RAYS;
 
@@ -523,16 +547,36 @@ PROCEDURE gen_rays;
 
 			{ iterate over all the energies }
 			LOOP i_energy 1 num_energies;
-				d_energy := beam_d_energy(i_energy);
-				color := beam_color(i_energy);
-				{this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization}
-				momentum_ratio := 1 + d_energy/(1 + 0.5110/central_energy);
+				photon_energy := beam_photon_energies(i_energy);
+				color := beam_colors(i_energy);
 
-				x_angle := (x_aperture-x_foil)/drift_pre_aperture;
-				y_angle := (y_aperture-y_foil)/drift_pre_aperture;
-				SET_RAY x_foil momentum_ratio*x_angle
-						y_foil momentum_ratio*y_angle
-						0 d_energy 0 0 color;
+				{ calculate the angle }
+				tan_x_angle := (x_aperture-x_foil)/drift_pre_aperture;
+				tan_y_angle := (y_aperture-y_foil)/drift_pre_aperture;
+
+				{ calculate the energy based on kinematics, assuming perfect collimation }
+				tan_angle := SQRT(tan_x_angle^2 + tan_y_angle^2);
+				photon_angle := calculate_photon_angle(photon_energy, tan_angle);
+				energy := calculate_electron_energy(photon_energy, photon_angle);
+
+				{ this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization }
+				momentum_ratio := (energy + 0.5110)/(central_energy + 0.5110);
+
+				SET_RAY x_foil momentum_ratio*tan_x_angle
+						y_foil momentum_ratio*tan_y_angle
+						0 energy/central_energy-1
+						0 0 color;
+				ray_photon_energies(num_rays) := photon_energy;
+
+				{ calculate this ray's weight according to its cross section and the volume of phase space it takes up }
+				energy_fraction := 1 - energy/photon_energy;
+				ray_weights(num_rays) := energy_fraction^2*(energy_fraction + 1/energy_fraction - SIN(photon_angle)^2);
+				IF (x_aperture#0)+(y_aperture#0);
+					ray_weights(num_rays) := ray_weights(num_rays)*3/8;
+				ENDIF;
+				IF (x_foil#0)+(y_foil#0);
+					ray_weights(num_rays) := ray_weights(num_rays)*3/8;
+				ENDIF;
 			ENDLOOP;
 		ENDLOOP;
 	ENDLOOP;
@@ -540,10 +584,13 @@ PROCEDURE gen_rays;
 
 	{ dispersive rays }
 	LOOP i_energy 1 num_energies;
-		d_energy := beam_d_energy(i_energy);
-		color := beam_color(i_energy);
-		SET_RAY 0 0 0 0 0 d_energy-0.05 0 0 1;
-		SET_RAY 0 0 0 0 0 d_energy+0.05 0 0 1;
+		LOOP step -0.5 0.5 1.0;
+			photon_energy := beam_photon_energies(i_energy) + step;
+			energy := calculate_electron_energy(photon_energy, PI);
+			SET_RAY 0 0 0 0 0 energy/central_energy-1 0 0 1;
+			ray_photon_energies(num_rays) := photon_energy;
+			ray_weights(num_rays) := 0;
+		ENDLOOP;
 	ENDLOOP;
 	num_dispersive_rays := num_rays-num_characteristic_rays;
 ENDPROCEDURE;
@@ -559,13 +606,13 @@ PROCEDURE config_spectrometer;
 
 	num_energies := 5;
 	LOOP i 1 num_energies;
-		beam_d_energy(i) := -0.3 + 0.6*(i-1)/(num_energies-1);
+		beam_photon_energies(i) := 10 + 8*(i - 1)/(num_energies - 1);
 	ENDLOOP;
-	beam_color(1) := 4; {yellow}
-	beam_color(2) := 6; {chartreuse}
-	beam_color(3) := 5; {green}
-	beam_color(4) := 7; {light blue}
-	beam_color(5) := 2; {blue}
+	beam_colors(1) := 4; {yellow}
+	beam_colors(2) := 6; {chartreuse}
+	beam_colors(3) := 5; {green}
+	beam_colors(4) := 7; {light blue}
+	beam_colors(5) := 2; {blue}
 ENDPROCEDURE;
 
 { determine the detector tilt angle and curvature that best goes with this design }
@@ -697,7 +744,15 @@ PROCEDURE optimize_detector;
 			LINV damped_hessian inverse_hessian 3 3 error_flag;
 			IF error_flag#0;
 				WRITE 6 'error in matrix inversion!' error_flag;
-				QUIT 1;
+				LOOP i_coord 1 3;  { fall back on an identity matrix }
+					LOOP j_coord 1 3;
+						IF i_coord=j_coord;
+							inverse_hessian(i_coord,j_coord) := 1;
+						ELSEIF TRUE;
+							inverse_hessian(i_coord,j_coord) := 0;
+						ENDIF;
+					ENDLOOP;
+				ENDLOOP;
 			ENDIF;
 			LOOP i_coord 1 3;
 				step(i_coord) := 0;
@@ -850,27 +905,27 @@ PROCEDURE main;
 	{ set upper bound for the foil dimensions }
 	foil_width := 0.03;
 	foil_height := 0.03;
-	aperture_width := 0.04;
-	aperture_height := 0.04;
-	drift_pre_aperture := 0.30;
+	aperture_width := 0.03;
+	aperture_height := 0.03;
+	drift_pre_aperture := 0.50;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.020590243851852867; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.00923983370492603; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.09136115296036379; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.22733094317328922; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.10949941997423525; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.32886799062952166; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_bend_angle := 60; {{PARAM |min=5 |max=60 |bias=0 |unit=deg}}
+	p_dipole_bend_angle := 56.487274713160495; {{PARAM |min=5 |max=60 |bias=0 |unit=deg}}
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.12339998837424242; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.1681516126509858; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.299897195029256; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.829181134536364;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_drift_pre_bend := 0.4027563902518393; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.028709185243496003; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 3.6; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 10.495826683965083;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
 	p_shape_in_5 := 0;
-	p_shape_out_1 := -0.3529349022286989; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -1.091208652784155; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 0.8453135854258154; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := 0.027810025326753154; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -1.9266965958289297; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 2.0965992845334624; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 	p_shape_out_5 := 0;
 	p_detector_position := 0;
@@ -967,17 +1022,17 @@ PROCEDURE main;
 	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=0 |max=1000 |bias=-1/10 |unit=cm}}
 	WRITE out 'beam centroid:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF(beam_photon_energies(i), '(F10.6)')&' MeV ->';
 		WRITE out position(i)*100 'cm';
 	ENDLOOP;
 	WRITE out 'dispersion:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF(beam_photon_energies(i), '(F10.6)')&' MeV ->';
 		WRITE out dispersion(i)*100 'cm/MeV';
 	ENDLOOP;
 	WRITE out 'algebraic resolution:';
 	LOOP i 1 num_energies;
-		WRITE out SF((beam_d_energy(i)+1)*central_energy, '(F10.6)')&' MeV ->';
+		WRITE out SF(beam_photon_energies(i), '(F10.6)')&' MeV ->';
 		WRITE out resolution(i)*1000 'keV';
 	ENDLOOP;
 

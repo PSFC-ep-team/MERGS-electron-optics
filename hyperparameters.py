@@ -339,7 +339,7 @@ def calculate_resolution(
 
 
 def calculate_foil_broadening(foil_thickness: float) -> float:
-	""" calculate the resolution for a perfect ion-optic system, just accounting for broadening and kinematics """
+	""" calculate the resolution for a perfect ion-optic system, just accounting for broadening """
 	foil = ConversionFoil(0, foil_thickness, 0, 0, foil_material="B")
 	initial_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
 	min_exit_energy = foil.calculate_stopping_power_loss(initial_energy, foil_thickness*1e-6)
