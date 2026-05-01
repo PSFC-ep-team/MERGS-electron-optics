@@ -10,7 +10,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Union, Any, Optional, Literal, Callable, Sequence
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, isfinite
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -41,7 +41,7 @@ def optimize_electron_optics(
 	bounds = [(parameter.min, parameter.max) for parameter in script.parameters]
 	n_dims = len(initial_guess)
 
-	if method != "SLSQP":
+	if method != "SLSQP" and method != "basin hopping":
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
 
@@ -106,7 +106,7 @@ def optimize_electron_optics(
 	elif method == "basin hopping":
 		rng = random.default_rng(seed=0)
 
-		def take_step(x):
+		def scale_savy_take_step(x):
 			for i, (lower, upper) in enumerate(bounds):
 				x[i] += (upper - lower)*rng.uniform(-0.05, 0.05)
 				if x[i] < lower:
@@ -115,13 +115,17 @@ def optimize_electron_optics(
 					x[i] = 2*upper - x[i]
 			return x
 
+		def sane_accept_test(res_new, res_old):
+			return res_new.success  # don't return any results that violate the constraints
+
 		objective_function(initial_guess, script, frugality, "ignore", cache, True)
 		result = optimize.basinhopping(
 			objective_function,
 			initial_guess,
 			niter=10,
 			T=0.,
-			take_step=take_step,
+			take_step=scale_savy_take_step,
+			accept_test=sane_accept_test,
 			minimizer_kwargs=dict(
 				args=(script, frugality, "ignore", cache),
 				jac="3-point",
@@ -138,7 +142,7 @@ def optimize_electron_optics(
 		raise ValueError(f"I don't support the optimization method '{method}'.")
 
 	if not result.success:
-		if method == "SLSQP":
+		if method == "SLSQP" or method == "basin hopping":
 			print(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
 			return optimize_electron_optics(
 				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
@@ -201,7 +205,10 @@ def estimate_resolution(
 		cache=cache)
 
 	resolutions = outputs["resolutions"]
-	return sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
+	try:
+		return sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
+	except OverflowError:
+		return inf
 
 
 def estimate_cost(
