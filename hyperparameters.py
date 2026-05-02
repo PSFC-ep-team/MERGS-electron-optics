@@ -3,7 +3,6 @@ code for scanning hyperparameters to find the set of all good designs
 """
 import multiprocessing
 from concurrent.futures import Executor
-from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional
 
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
@@ -46,132 +45,105 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	# in general we want as large a foil as possible, as long as we can put the aperture far enuff away.  but it doesn't make sense for it to be bigger than the collimator.  so fix it at 3 cm.
 	foil_diameter = 0.03
 
+	cache: dict[tuple, tuple[float, float, list[float], float, float]] = {}
+
 	all_aperture_distances = []
 	all_aperture_diameters = []
 	all_resolutions = []
 	all_costs = []
 
-	def objective(aperture_dimensions):
-		# run the inner optimization scan
-		_, _, resolution, cost = optimize_parameters_and_frugality(
-			foil_diameter, aperture_dimensions[0], aperture_dimensions[1],
-			target_resolution, target_efficiency, executor=None)
-		# save the results
-		all_aperture_distances.append(aperture_dimensions[0]/1e-2)
-		all_aperture_diameters.append(aperture_dimensions[1]/1e-2)
-		all_resolutions.append(resolution)
-		all_costs.append(cost)
-		# make a plot so the user can see our progress
-		fig = plt.figure(figsize=(5.5, 3), facecolor="none")
-		ax = fig.add_subplot()
-		ax.grid()
-		ax.scatter(
-			array(all_aperture_distances)[~isfinite(all_costs)],
-			array(all_aperture_diameters)[~isfinite(all_costs)],
-			s=20, zorder=2, c="k", marker="x")
-		if any(isfinite(all_costs)):
+	def run_inner_optimization(hyperparameters):
+		if tuple(hyperparameters) not in cache:
+			aperture_distance_dm, aperture_diameter_cm, log_frugality = hyperparameters
+			aperture_distance = aperture_distance_dm*0.1
+			aperture_diameter = aperture_diameter_cm*0.01
+			frugality = 10**log_frugality
+
+			# calculate the foil thickness
+			foil_thickness = optimize_foil_thickness(
+				foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=None)
+			foil_resolution = calculate_foil_broadening(foil_thickness)
+			# run the inner optimization scan
+			parameters, total_resolution, cost = optimize_parameters(
+				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
+				executor=None, final=False)
+			# save the results
+			cache[tuple(hyperparameters)] = (foil_thickness, foil_resolution, parameters, total_resolution, cost)
+
+			all_aperture_distances.append(aperture_distance/1e-2)
+			all_aperture_diameters.append(aperture_diameter/1e-2)
+			all_resolutions.append(total_resolution)
+			all_costs.append(cost)
+			# make a plot so the user can see our progress
+			fig = plt.figure(figsize=(5.5, 3), facecolor="none")
+			ax = fig.add_subplot()
+			ax.grid()
 			ax.scatter(
-				array(all_aperture_distances)[isfinite(all_costs)],
-				array(all_aperture_diameters)[isfinite(all_costs)],
-				s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
-		for i in range(max(0, len(all_costs) - 10), len(all_costs)):
-			ax.text(all_aperture_distances[i], all_aperture_diameters[i], f"{all_resolutions[i]:.5g} keV, {all_costs[i]:.5g} $")
-		ax.set_xlabel("Aperture distance (cm)")
-		ax.set_ylabel("Aperture diameter (cm)")
-		fig.tight_layout()
-		fig.savefig("generated/hyperparameter_optimization.pdf")
-		plt.close(fig)
-		return cost
+				array(all_aperture_distances)[~isfinite(all_costs)],
+				array(all_aperture_diameters)[~isfinite(all_costs)],
+				s=20, zorder=2, c="k", marker="x")
+			if any(isfinite(all_costs)):
+				ax.scatter(
+					array(all_aperture_distances)[isfinite(all_costs)],
+					array(all_aperture_diameters)[isfinite(all_costs)],
+					s=10, zorder=2, c=array(all_costs)[isfinite(all_costs)], vmax=max(array(all_costs)[isfinite(all_costs)][-20:]))
+			for i in range(max(0, len(all_costs) - 10), len(all_costs)):
+				ax.text(all_aperture_distances[i], all_aperture_diameters[i], f"{all_resolutions[i]:.5g} keV, {all_costs[i]:.5g} $")
+			ax.set_xlabel("Aperture distance (cm)")
+			ax.set_ylabel("Aperture diameter (cm)")
+			fig.tight_layout()
+			fig.savefig("generated/hyperparameter_optimization.pdf")
+			plt.close(fig)
+		return cache[tuple(hyperparameters)]
+
+	def get_foil_resolution(hyperparameters):
+		return run_inner_optimization(hyperparameters)[1]
+
+	def get_total_resolution(hyperparameters):
+		return run_inner_optimization(hyperparameters)[3]
+
+	def get_cost(hyperparameters):
+		return run_inner_optimization(hyperparameters)[4]
 
 	# calculate the optimal hyperparameters
 	solution = optimize.minimize(
-		objective,
-		[.50, .03],
-		method="Nelder-Mead",
-		bounds=[(.20, 3.00), (.001, .10)],
+		get_cost,
+		[5., 3., -2.],
+		constraints=[
+			optimize.NonlinearConstraint(
+				get_total_resolution,
+				0, target_resolution),
+			optimize.NonlinearConstraint(
+				get_foil_resolution,  # including this isn't strictly necessary but I think it might help
+				0, target_resolution),
+		],
+		bounds=[(2., 30.), (0.5, 10.), (-4., 0.)],
+		method="COBYLA",
 		options=dict(
 			disp=True,
-			initial_simplex=[
-				[.40, .02],
-				[.50, .03],
-				[.30, .04],
-			],
-			xatol=0.001,
-			fatol=inf,
+			rhobeg=1.0,
+			tol=0.1,
 		),
 	)
 	print(solution)
-	aperture_distance, aperture_diameter = solution.x
+	aperture_distance_dm, aperture_diameter_cm, log_frugality = solution.x
+	aperture_distance = aperture_distance_dm*0.1
+	aperture_diameter = aperture_diameter_cm*0.01
+	frugality = 10**log_frugality
+	foil_thickness = cache[tuple(solution.x)][0]
 
 	# calculate and save the optimal magnet parameters
-	foil_thickness, magnet_parameters, _, _ = optimize_parameters_and_frugality(
-		foil_diameter, aperture_distance, aperture_diameter,
-		target_resolution, target_efficiency, executor=None, save_name=f"{name}_electron_optics")
+	magnet_parameters, _, _ = optimize_parameters(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
+		executor=None, final=True, save_name=f"{name}_electron_optics")
 	print(f"has been saved to {name}_electron_optics!")
 
 	return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
 
-def optimize_parameters_and_frugality(
-		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		target_resolution: float, target_efficiency: float,
-		executor: Optional[Executor], save_name: str = None) -> tuple[float, Optional[list[float]], float, float]:
-	"""
-	for a given foil and aperture dimensions, find the optimal magnet system and foil thickness that achieves the given resolution and efficiency for the lowest cost
-	:param foil_diameter: the foil diameter in m
-	:param aperture_distance: the distance from the foil to the aperture in m
-	:param aperture_diameter: the aperture diameter in m
-	:param target_resolution: the desired resolution at 16.7 MeV, in keV
-	:param target_efficiency: the desired number of upper DT-γ counts per MJ
-	:param executor: the process pool to use for the multiprocessed bits
-	:param save_name: a filename at which to save the optimal magnet parameters
-	:return: the optimal foil thickness (μm), optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
-	"""
-	cache: dict[float, tuple[list[float], float, float]] = {}
-
-	foil_thickness = optimize_foil_thickness(
-		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor)
-
-	best_possible_resolution = calculate_resolution(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-		magnet_system_filename=None, parameters=None, executor=executor)
-	if best_possible_resolution > target_resolution:
-		print(f"It is not possible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
-		return foil_thickness, None, best_possible_resolution, inf
-
-	best_practical_resolution = optimize_parameters(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 0.001,
-		cache, executor, final=False)[1]
-	if best_practical_resolution > target_resolution:
-		print(f"It is infeasible to make a system with the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] that has efficiency {target_efficiency:.2g} and resolution {target_resolution:.0f} keV.")
-		return foil_thickness, None, best_practical_resolution, inf
-
-	cheapest_resolution = optimize_parameters(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, 1.0,
-		cache, executor, final=False)[1]
-	if cheapest_resolution <= target_resolution:
-		print(f"The hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m] automatically achieve efficiency {target_efficiency:.2g} and resolution {cheapest_resolution:.0f} keV.")
-		parameters, resolution, cost = cache[1.0]
-		return foil_thickness, parameters, resolution, cost
-
-	optimum = optimize.root_scalar(
-		lambda frugality: optimize_parameters(
-			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-			cache, executor, final=False, save_name=save_name)[1] - target_resolution,
-		bracket=(0.001, 1.0),
-		rtol=0.02,  # note the large tolerance; we don't need to get the frugality _that_ precisely
-	)
-	magnet_parameters, resolution, cost = cache[optimum.root]
-
-	print(f"For the hyperparameters [{foil_diameter:.3f} m, {aperture_distance:.3f} m, {aperture_diameter:.3f} m], a cost of {cost:.3f} $ achieves efficiency {target_efficiency:.2g} and resolution {resolution:.0f} keV")
-
-	return foil_thickness, magnet_parameters, resolution, cost
-
-
 def optimize_parameters(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, cache: dict[float, tuple[list[float], float, float]], executor: Optional[Executor],
-		final=True, save_name: str = None) -> tuple[list[float], float, float]:
+		frugality: float, executor: Optional[Executor], final=True, save_name: str = None) -> tuple[list[float], float, float]:
 	"""
 	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves the given efficiency with the best resolution
 	:param foil_diameter: the foil diameter in m
@@ -179,26 +151,21 @@ def optimize_parameters(
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
 	:param frugality: how much to wey cost when evaluating performance
-	:param cache: the cache of previus optimizations with these hyperparameters and target efficiency
 	:param executor: the process pool to use for the multiprocessed bits
 	:param final: whether to make this calculation accurate (otherwise we'll just do something quick and easy)
 	:param save_name: a filename at which to save the optimal magnet parameters
 	:return: the optimal magnet parameters, resolution at 16.75 MeV (keV), and cost (emerald broams)
 	"""
-	# check the local cache
-	if frugality in cache:
-		return cache[frugality]
-
 	order = FINAL_ORDER if final else SCAN_ORDER
 
 	# check the permanent cache
 	try:
 		parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order)
-		print("loading a previus optimized magnet system from the cache...")
+		print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 
 	# optimize the magnet parameters
 	except ValueError:
-		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}]...")
+		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			order=order, save_name=save_name)
@@ -211,8 +178,7 @@ def optimize_parameters(
 
 	# print, save, and return
 	print(f"\t{total_resolution:.0f} keV, {cost:.2f} $")
-	cache[frugality] = parameters, total_resolution, cost
-	return cache[frugality]
+	return parameters, total_resolution, cost
 
 
 def optimize_foil_thickness(
@@ -374,4 +340,4 @@ def append_to_permanent_cache(foil_diameter: float, aperture_distance: float, ap
 
 
 if __name__ == "__main__":
-	optimize_hyperparameters("MERGS", 500, 1)
+	optimize_hyperparameters("MERGS cheap", 500, 1)

@@ -10,7 +10,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Union, Any, Optional, Literal, Callable, Sequence
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, isfinite
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -515,7 +515,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .30, .04, 0.01,
+		.03, .40, .04, 0.01,
 		order=9, method="SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)
