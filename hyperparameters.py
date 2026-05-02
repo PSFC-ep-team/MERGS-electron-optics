@@ -39,7 +39,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	come up with a spectrometer design that meets the given resolution and efficiency
 	for the lowest cost possible, and save it to disk at the given name
 	:param name: the final filename at which to save the COSY file
-	:param target_resolution: the desired resolution at 16.7 MeV, in keV
+	:param target_resolution: the desired resolution at 16.75 MeV, in keV
 	:param target_efficiency: the desired number of upper DT-γ counts per MJ
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
@@ -183,7 +183,7 @@ def optimize_parameters(
 	:param executor: the process pool to use for the multiprocessed bits
 	:param final: whether to make this calculation accurate (otherwise we'll just do something quick and easy)
 	:param save_name: a filename at which to save the optimal magnet parameters
-	:return: the optimal magnet parameters, resolution at 16.7 MeV (keV), and cost (emerald broams)
+	:return: the optimal magnet parameters, resolution at 16.75 MeV (keV), and cost (emerald broams)
 	"""
 	# check the local cache
 	if frugality in cache:
@@ -231,7 +231,7 @@ def optimize_foil_thickness(
 	# first use a quick MC to calculate the geometric efficiency
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
-		16.7, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
+		16.75, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
 	nuclear_efficiency = 2.4e-5*.89/(17.6*1.6e-19)  # photons/MJ (only counting the 89% that fall above 11 MeV)
 	collimator_efficiency = 1.5*7e-10*(foil_diameter/.03)**2
 	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
@@ -239,9 +239,9 @@ def optimize_foil_thickness(
 	total_cross_section = 0
 	scattering_cross_section = 0
 	for interaction in foil.interactions:
-		total_cross_section += interaction.get_cross_section(16.7)
+		total_cross_section += interaction.get_cross_section(16.75)
 		if interaction.generates_recoil_particles:
-			scattering_cross_section += interaction.get_cross_section(16.7)
+			scattering_cross_section += interaction.get_cross_section(16.75)
 	return -log1p(-target_scattering_efficiency/scattering_cross_section*total_cross_section)/total_cross_section/1e-6
 
 
@@ -261,7 +261,7 @@ def calculate_resolution(
 	:param parameters: the electron optics parameters, if different from what's currently in the file
 	:param order: the number of COSY orders to use in the calculation
 	:param executor: the process pool to use for the multiprocessed bits
-	:return: resolution at 16.7 MeV (keV)
+	:return: resolution at 16.75 MeV (keV)
 	"""
 	# first make sure the foil is a reasonable thickness
 	foil_broadening = calculate_foil_broadening(foil_thickness)
@@ -277,6 +277,7 @@ def calculate_resolution(
 		map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
 		with open(map_filename, "w") as file:
 			file.write(cosy_outputs["map"])
+		central_energy = cosy_outputs["central_energy"]
 		tilt_angle = degrees(cosy_outputs["p_detector_tilt"])
 		if cosy_outputs["p_detector_curvature"] != 0:
 			arc_radius = -100/cosy_outputs["p_detector_curvature"]
@@ -297,6 +298,7 @@ def calculate_resolution(
 		)
 		with open(map_filename, "w") as file:
 			file.write(ideal_map)
+		central_energy = 10
 		tilt_angle = 0
 		arc_radius = inf
 
@@ -311,7 +313,7 @@ def calculate_resolution(
 				foil_material="B",
 			),
 			transfer_map_path=map_filename,
-			reference_energy=13.5, min_energy=9.45, max_energy=17.55,
+			reference_energy=central_energy, min_energy=6, max_energy=18,
 			hodoscope=Hodoscope(
 				tilt_angle=tilt_angle,
 				arc_radius=arc_radius,
@@ -323,7 +325,7 @@ def calculate_resolution(
 
 	try:
 		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-			incident_energy=16.7, num_recoil_particles=10_000, map_order=order,
+			incident_energy=16.75, num_recoil_particles=10_000, map_order=order,
 			executor=executor, max_workers=8 if executor else 1)
 	except ValueError as e:
 		# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
@@ -344,7 +346,7 @@ def calculate_resolution(
 def calculate_foil_broadening(foil_thickness: float) -> float:
 	""" calculate the resolution for a perfect ion-optic system, just accounting for broadening """
 	foil = ConversionFoil(0, foil_thickness, 0, 0, foil_material="B")
-	initial_energy = foil.interactions[0].get_recoil_energy(16.7, 0., None)
+	initial_energy = foil.interactions[0].get_recoil_energy(16.75, 0., None)
 	min_exit_energy = foil.calculate_stopping_power_loss(initial_energy, foil_thickness*1e-6)
 	return (initial_energy - min_exit_energy)*1000
 

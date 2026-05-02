@@ -944,6 +944,7 @@ PROCEDURE main;
 	optimize_detector;
 	evaluate_spectrometer;
 
+	WRITE out 'central_energy := '&SF(central_energy, '(G22.15)')&';';
 	WRITE out 'foil_width := '&SF(foil_width, '(G22.15)')&';';
 	WRITE out 'foil_height := '&SF(foil_height, '(G22.15)')&';';
 	WRITE out 'aperture_width := '&SF(aperture_width, '(G22.15)')&';';

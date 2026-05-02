@@ -88,7 +88,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 	performance_ax.set_ylim(0.1, 10)
 	performance_ax.set_xlabel("Resolution (keV)")
 	performance_ax.set_ylabel("Efficiency (counts/MJ)")
-	performance_ax.set_title("Performance for 16.7 MeV photons")
+	performance_ax.set_title("Performance for 16.75 MeV photons")
 	performance_fig.tight_layout()
 	performance_fig.savefig("pareto.pdf")
 
