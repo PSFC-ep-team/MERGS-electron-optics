@@ -115,10 +115,9 @@ def optimize_electron_optics(
 					x[i] = 2*upper - x[i]
 			return x
 
-		def sane_accept_test(res_new, res_old):
+		def sane_accept_test(*, res_new, res_old):
 			return res_new.success  # don't return any results that violate the constraints
 
-		objective_function(initial_guess, script, frugality, "ignore", cache, True)
 		result = optimize.basinhopping(
 			objective_function,
 			initial_guess,
