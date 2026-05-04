@@ -143,9 +143,12 @@ def optimize_electron_optics(
 	if not result.success:
 		if method == "SLSQP" or method == "basin hopping":
 			print(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
-			return optimize_electron_optics(
-				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-				method="Nelder-Mead", save_name=save_name)
+			try:
+				return optimize_electron_optics(
+					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+					method="Nelder-Mead", save_name=save_name)
+			except ValueError as e:
+				raise RuntimeError(f"nevermind, we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
 		else:
 			raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 
