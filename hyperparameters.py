@@ -1,6 +1,7 @@
 """
 code for scanning hyperparameters to find the set of all good designs
 """
+import logging
 import multiprocessing
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
@@ -13,7 +14,7 @@ from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, m
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
-# silence this error
+# try to silence this error
 seterr(divide="ignore")
 
 # turn off pair production
@@ -27,6 +28,12 @@ plt.rcParams["font.size"] = 12
 plt.rcParams['xtick.labelsize'] = 12
 plt.rcParams['ytick.labelsize'] = 12
 plt.rcParams['lines.linewidth'] = 1.5
+
+# configure the logger
+logging.basicConfig(
+	level=logging.INFO, filename="out.log",
+	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s %(message)s")
+logging.getLogger().addHandler(logging.StreamHandler())
 
 
 # avoid using super high orders when you're just trying to work out the aperture geometry
@@ -44,6 +51,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:param target_efficiency: the desired number of upper DT-γ counts per MJ
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
+	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency} counts/MJ.")
 	foil_diameters = array([.03])
 	aperture_distances = array([.25, .30, .40, .50, .60, .80, 1.00])
 	aperture_diameters = array([.015, .02, .025, .03, .035, .04, .05])
@@ -73,7 +81,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 								foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 								executor=executor, final=False)
 						except RuntimeError as e:
-							print(e)
+							logging.warning(e)
 							break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
 
 						# save the results
@@ -115,19 +123,19 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							break
 
 	if best is None:
-		print("none of these met the resolution requirement.  it's probably not possible.")
+		logging.warning("none of these met the resolution requirement.  it's probably not possible.")
 		raise RuntimeError("impossible requirements")
 
 	else:
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality = best
-		print(f"the best one was [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}], "
-		      f"which had a thickness of {foil_thickness:.1f} μm and cost {best_cost} $")
+		logging.info(f"the best one was [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}], "
+		             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost} $")
 
 		# calculate and save the optimal magnet parameters
 		magnet_parameters, _, _ = optimize_parameters(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 			executor=None, final=True, save_name=f"{name}_electron_optics")
-		print(f"has been saved to {name}_electron_optics!")
+		logging.info(f"has been saved to {name}_electron_optics!")
 		return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
 
@@ -135,7 +143,8 @@ def optimize_parameters(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float,
 		frugality: float, executor: Optional[Executor], final=True, save_name: str = None) -> tuple[list[float], float, float]:
 	"""
-	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves the given efficiency with the best resolution
+	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves
+	the given efficiency with the best resolution
 	:param foil_diameter: the foil diameter in m
 	:param foil_thickness: the foil thickness in μm
 	:param aperture_distance: the distance from the foil to the aperture in m
@@ -162,9 +171,11 @@ def optimize_parameters(
 
 	# optimize the magnet parameters
 	if perfect_match:
-		print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+		logging.info(f"loading an optimized magnet system for ["
+		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 	else:
-		print(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+		logging.info(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} "
+		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, order=order, save_name=save_name)
@@ -172,11 +183,12 @@ def optimize_parameters(
 
 	# calculate the resolution
 	total_resolution = calculate_resolution(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, "mergs_electron_optics", parameters,
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
+		"mergs_electron_optics", parameters,
 		order=order, executor=executor)
 
-	# print, save, and return
-	print(f"\t{total_resolution:.0f} keV, {cost:.2f} $")
+	# log, save, and return
+	logging.info(f" -> {total_resolution:.0f} keV, {cost:.2f} $")
 	return parameters, total_resolution, cost
 
 
@@ -295,11 +307,11 @@ def calculate_resolution(
 	except ValueError as e:
 		# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
 		if str(e) == "Some of these rays don't hit the curved detector.":
-			print("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
+			logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
 			return inf  # shikatanai.  just avoid that geometry, I gess, since the map is probably not even converged.
 		# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
 		elif str(e) == "Failed to generate electron":
-			print("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
+			logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
 			return inf  # return inf to discourage that, but also print in case it's happening a lot
 		# if it's something else, then I'm scared and confused and we should probably stop.
 		else:
@@ -347,7 +359,9 @@ def find_nearest_in_permanent_cache(
 		return parameters, cost, best_distance == 0
 
 
-def append_to_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int, parameters: list[float], cost: float):
+def append_to_permanent_cache(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
+		parameters: list[float], cost: float):
 	with open("generated/magnet_optimization_cache.txt", mode="a") as file:
 		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
 		           f"{', '.join(str(x) for x in parameters)}, {cost}\n")

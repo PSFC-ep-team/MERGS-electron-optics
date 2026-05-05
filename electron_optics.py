@@ -151,7 +151,7 @@ def optimize_electron_optics(
 					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
 					method="Nelder-Mead", save_name=save_name)
 			except ValueError as e:
-				raise RuntimeError(f"nevermind, we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
+				raise RuntimeError(f"I tried to fall back on Nelder–Mead but we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
 		else:
 			raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 

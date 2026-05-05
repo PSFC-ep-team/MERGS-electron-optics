@@ -7,3 +7,4 @@ pic*.svg
 .idea/*
 __pycache__/*
 pareto.pdf
+out.log
