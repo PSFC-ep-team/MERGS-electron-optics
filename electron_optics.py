@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 from shutil import copyfile
-from typing import Tuple, List, Union, Any, Optional, Literal, Callable, Sequence
+from typing import Tuple, List, Any, Optional, Literal, Callable, Sequence, cast
 
 from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random
 from numpy.typing import NDArray
@@ -21,7 +21,8 @@ os.makedirs("generated/", exist_ok=True)
 
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order=6, method="basin hopping", save_name=None) -> tuple[list[float], float, float]:
+		frugality: float, order=6, method="basin hopping", save_name=None,
+		initial_guess: Sequence[float] = None) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
@@ -31,13 +32,15 @@ def optimize_electron_optics(
 	:param order: the highest order of term to include in COSY's calculations
 	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
 	:param save_name: a filename for the final solution
+	:param initial_guess: the parameter values at which to start the search
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
 	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
 
 	cache = {}
 
-	initial_guess = [parameter.default for parameter in script.parameters]
+	if initial_guess is None:
+		initial_guess = [cast(float, parameter.default) for parameter in script.parameters]
 	bounds = [(parameter.min, parameter.max) for parameter in script.parameters]
 	n_dims = len(initial_guess)
 
@@ -172,7 +175,7 @@ def optimize_electron_optics(
 
 
 def objective_function(
-		parameter_vector: List[float], script: Script, frugality: float,
+		parameter_vector: Sequence[float], script: Script, frugality: float,
 		constraints: Literal['ignore', 'inf', 'error'],
 		cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
@@ -192,7 +195,7 @@ def objective_function(
 
 
 def estimate_resolution(
-		script: Script, parameter_vector: List[float],
+		script: Script, parameter_vector: Sequence[float],
 		cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate the system's mean energy resolution.
@@ -214,21 +217,21 @@ def estimate_resolution(
 
 
 def estimate_cost(
-		script: Script, parameter_vector: List[float],
-		constraints: Literal['ignore', 'inf', 'error'],
+		script: Script, parameter_vector: Sequence[float],
+		constraint_handling: Literal['ignore', 'inf', 'error'],
 		cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate a number that quantifies the system's cost.
 	:param parameter_vector: the values of the parameters at which to evaluate it
 	:param script: the COSY script to run with those parameters
-	:param constraints: how to deal with constraints.
+	:param constraint_handling: how to deal with constraints.
 	                    - if 'ignore', constraint biases will be added to the cost but mins and maxen will be ignored.
 	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
 	                    - if 'error', any constraint that's out of bounds will raise an error.
 	:param cache: the saved COSY runs
 	"""
-	if constraints not in ['ignore', 'inf', 'error']:
-		raise ValueError(f"Unrecognized constraint violation option: '{constraints}'.")
+	if constraint_handling not in ['ignore', 'inf', 'error']:
+		raise ValueError(f"Unrecognized constraint violation option: '{constraint_handling}'.")
 
 	outputs = run_cosy(
 		script,
@@ -242,18 +245,18 @@ def estimate_cost(
 	for constraint in script.constraints:
 		value = outputs[constraint.name]
 		if value < constraint.min or value > constraint.max:
-			if constraints == 'error':
+			if constraint_handling == 'error':
 				raise ValueError(f"{constraint.name} is {value}, which is out of bounds [{constraint.min}, {constraint.max}]")
-			elif constraints == 'inf':
+			elif constraint_handling == 'inf':
 				penalty = inf
 		penalty -= constraint.bias*value
 	return penalty
 
 
-def run_cosy(script: Script, parameter_vector: Optional[List[float]], output_mode: str, run_id: Optional[str] = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
+def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
 	if parameter_vector is None:
-		parameter_vector = [parameter.default for parameter in script.parameters]
+		parameter_vector = [cast(float, parameter.default) for parameter in script.parameters]
 	assert len(parameter_vector) == len(script.parameters)
 
 	run_key = tuple(parameter_vector)
@@ -410,7 +413,7 @@ def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **k
 
 
 def generate_initial_sample(
-		x0: Union[NDArray, List[float]],
+		x0: Sequence[float],
         bounds: List[Tuple[float, float]],
 		n_desired: int,
 ) -> NDArray:
@@ -507,7 +510,7 @@ class Script:
 
 
 class Parameter:
-	def __init__(self, name: str, default: float, min: float, max: float, bias: float, unit: str):
+	def __init__(self, name: str, default: Optional[float], min: float, max: float, bias: float, unit: str):
 		self.name = name
 		self.default = default
 		self.min = min

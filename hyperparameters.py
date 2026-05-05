@@ -9,7 +9,7 @@ from typing import Optional
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
-from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
@@ -151,19 +151,23 @@ def optimize_parameters(
 	# check the permanent cache
 	if save_name is None:
 		try:
-			parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order)
-			print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+			parameters, cost, perfect_match = find_nearest_in_permanent_cache(
+				foil_diameter, aperture_distance, aperture_diameter, frugality, order)
 		except ValueError:
 			parameters, cost = None, None
+			perfect_match = False
 	else:
 		parameters, cost = None, None
+		perfect_match = False
 
 	# optimize the magnet parameters
-	if parameters is None or cost is None:
-		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+	if perfect_match:
+		print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+	else:
+		print(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			order=order, save_name=save_name)
+			initial_guess=parameters, order=order, save_name=save_name)
 		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
 
 	# calculate the resolution
@@ -312,20 +316,35 @@ def calculate_foil_broadening(foil_thickness: float) -> float:
 	return (initial_energy - min_exit_energy)*1000
 
 
-def find_in_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int) -> tuple[list[float], float]:
+def find_nearest_in_permanent_cache(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
+) -> tuple[list[float], float, bool]:
+	best_distance = inf
+	best_outputs = None
 	try:
-		key_string = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}"
 		with open("generated/magnet_optimization_cache.txt", mode="r") as file:
 			for line in file.readlines():
 				input_string, output_string = line.split(": ")
-				if key_string == input_string:
-					outputs = [float(x) for x in output_string.split(", ")]
-					parameters = outputs[:-1]
-					cost = outputs[-1]
-					return parameters, cost
-		raise ValueError("not in cache")
+				cached_foil_diameter, cached_aperture_distance, cached_aperture_diameter, cached_frugality, cached_order = (
+					float(x) for x in input_string.split(", "))
+				distance = sqrt(
+					((foil_diameter - cached_foil_diameter)/0.15)**2 +
+					((aperture_distance - cached_aperture_distance)/0.008)**2 +
+					((aperture_diameter - cached_aperture_diameter)/0.005)**2 +
+					((log(frugality) - log(cached_frugality))/5)**2 +
+					((order - cached_order)/5)**2
+				)
+				if distance < best_distance:
+					best_distance = distance
+					best_outputs = [float(x) for x in output_string.split(", ")]
 	except FileNotFoundError:
+		raise ValueError("cache is absent")
+	if best_outputs is None:
 		raise ValueError("cache is empty")
+	else:
+		parameters = best_outputs[:-1]
+		cost = best_outputs[-1]
+		return parameters, cost, best_distance == 0
 
 
 def append_to_permanent_cache(foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int, parameters: list[float], cost: float):
