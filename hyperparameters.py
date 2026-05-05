@@ -3,6 +3,7 @@ code for scanning hyperparameters to find the set of all good designs
 """
 import multiprocessing
 from concurrent.futures import Executor
+from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional
 
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
@@ -53,64 +54,65 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	best_cost = inf
 	best: Optional[tuple[float, float, float, float, float]] = None
 
-	for foil_diameter in foil_diameters:
-		for j, aperture_distance in enumerate(aperture_distances):
-			for k, aperture_diameter in enumerate(aperture_diameters):
-				for frugality in frugalities:
+	with ProcessPoolExecutor(max_workers=8) as executor:
+		for foil_diameter in foil_diameters:
+			for j, aperture_distance in enumerate(aperture_distances):
+				for k, aperture_diameter in enumerate(aperture_diameters):
+					for frugality in frugalities:
 
-					# calculate the foil thickness
-					foil_thickness = optimize_foil_thickness(
-						foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=None)
-					foil_resolution = calculate_foil_broadening(foil_thickness)
-					if foil_resolution > target_resolution:
-						break
+						# calculate the foil thickness
+						foil_thickness = optimize_foil_thickness(
+							foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=executor)
+						foil_resolution = calculate_foil_broadening(foil_thickness)
+						if foil_resolution > target_resolution:
+							break
 
-					# run the inner optimization scan
-					try:
-						_, resolution, cost = optimize_parameters(
-							foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-							executor=None, final=False)
-					except RuntimeError as e:
-						print(e)
-						break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
+						# run the inner optimization scan
+						try:
+							_, resolution, cost = optimize_parameters(
+								foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
+								executor=executor, final=False)
+						except RuntimeError as e:
+							print(e)
+							break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
 
-					# save the results
-					if resolution_grid[j, k] <= target_resolution:
-						this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[j, k]
-					else:
-						this_is_better_than_whats_in_the_grid = resolution < resolution_grid[j, k]
-					if this_is_better_than_whats_in_the_grid:
-						resolution_grid[j, k] = resolution
-						cost_grid[j, k] = cost
-					if resolution <= target_resolution and cost < best_cost:
-						best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
-						best_cost = cost
-
-					# make a plot so the user can see our progress
-					if any(isfinite(cost_grid)):
-						if any(resolution_grid <= target_resolution):
-							vmax = cost_grid.max(where=resolution_grid <= target_resolution, initial=-inf)
+						# save the results
+						if resolution_grid[j, k] <= target_resolution:
+							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[j, k]
 						else:
-							vmax = cost_grid.max()
-						fig = plt.figure(figsize=(5.5, 3), facecolor="none")
-						ax = fig.add_subplot()
-						mesh = ax.pcolormesh(
-							aperture_distances, aperture_diameters, cost_grid.T, vmax=vmax, shading="gouraud")
-						ax.scatter(
-							aperture_distance_grid, aperture_diameter_grid, c=cost_grid, vmax=vmax)
-						ax.contour(
-							aperture_distances, aperture_diameters, resolution_grid.T,
-							levels=[target_resolution], colors=["k"])
-						ax.set_xlabel("Aperture distance (cm)")
-						ax.set_ylabel("Aperture diameter (cm)")
-						plt.colorbar(mesh).set_label("Cost")
-						fig.tight_layout()
-						fig.savefig("generated/hyperparameter_optimization.pdf")
-						plt.close(fig)
+							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[j, k]
+						if this_is_better_than_whats_in_the_grid:
+							resolution_grid[j, k] = resolution
+							cost_grid[j, k] = cost
+						if resolution <= target_resolution and cost < best_cost:
+							best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
+							best_cost = cost
 
-					# if the resolution requirement was not met here, you can skip the higher frugalities
-					if resolution > target_resolution:
-						break
+						# make a plot so the user can see our progress
+						if any(isfinite(cost_grid)):
+							if any(resolution_grid <= target_resolution):
+								vmax = cost_grid.max(where=resolution_grid <= target_resolution, initial=-inf)
+							else:
+								vmax = cost_grid.max()
+							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
+							ax = fig.add_subplot()
+							mesh = ax.pcolormesh(
+								aperture_distances, aperture_diameters, cost_grid.T, vmax=vmax, shading="gouraud")
+							ax.scatter(
+								aperture_distance_grid, aperture_diameter_grid, c=cost_grid, vmax=vmax)
+							ax.contour(
+								aperture_distances, aperture_diameters, resolution_grid.T,
+								levels=[target_resolution], colors=["k"])
+							ax.set_xlabel("Aperture distance (cm)")
+							ax.set_ylabel("Aperture diameter (cm)")
+							plt.colorbar(mesh).set_label("Cost")
+							fig.tight_layout()
+							fig.savefig("generated/hyperparameter_optimization.pdf")
+							plt.close(fig)
+
+						# if the resolution requirement was not met here, you can skip the higher frugalities
+						if resolution > target_resolution:
+							break
 
 	if best is None:
 		print("none of these met the resolution requirement.  it's probably not possible.")
@@ -147,12 +149,17 @@ def optimize_parameters(
 	order = FINAL_ORDER if final else SCAN_ORDER
 
 	# check the permanent cache
-	try:
-		parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order)
-		print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+	if save_name is None:
+		try:
+			parameters, cost = find_in_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order)
+			print(f"loading an optimized magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+		except ValueError:
+			parameters, cost = None, None
+	else:
+		parameters, cost = None, None
 
 	# optimize the magnet parameters
-	except ValueError:
+	if parameters is None or cost is None:
 		print(f"optimizing the magnet system for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
@@ -185,9 +192,9 @@ def optimize_foil_thickness(
 	# first use a quick MC to calculate the geometric efficiency
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
-		16.75, num_samples=100_000, executor=executor, max_workers=8 if executor else 1)
-	nuclear_efficiency = 2.4e-5*.89/(17.6*1.6e-19)  # photons/MJ (only counting the 89% that fall above 11 MeV)
-	collimator_efficiency = 1.5*7e-10*(foil_diameter/.03)**2
+		16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
+	nuclear_efficiency = 2.4e-5*.934/(17.6*1.6e-19)  # photons/MJ (only counting the 93% that fall above 10 MeV)
+	collimator_efficiency = 1e-9*(foil_diameter/.03)**2
 	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
 	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
 	total_cross_section = 0
@@ -279,7 +286,7 @@ def calculate_resolution(
 
 	try:
 		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-			incident_energy=16.75, num_recoil_particles=10_000, map_order=order,
+			incident_energy=16.75, num_recoil_particles=100_000, map_order=order,
 			executor=executor, max_workers=8 if executor else 1)
 	except ValueError as e:
 		# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
