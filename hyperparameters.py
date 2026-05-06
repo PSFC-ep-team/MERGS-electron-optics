@@ -129,7 +129,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	else:
 		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality = best
 		logging.info(f"the best one was [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}], "
-		             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost} $")
+		             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost:.2f} $")
 
 		# calculate and save the optimal magnet parameters
 		magnet_parameters, _, _ = optimize_parameters(
@@ -158,28 +158,24 @@ def optimize_parameters(
 	order = FINAL_ORDER if final else SCAN_ORDER
 
 	# check the permanent cache
-	if save_name is None:
-		try:
-			parameters, cost, perfect_match = find_nearest_in_permanent_cache(
-				foil_diameter, aperture_distance, aperture_diameter, frugality, order)
-		except ValueError:
-			parameters, cost = None, None
-			perfect_match = False
-	else:
+	try:
+		parameters, cost, perfect_match = find_nearest_in_permanent_cache(
+			foil_diameter, aperture_distance, aperture_diameter, frugality, order)
+	except ValueError:
 		parameters, cost = None, None
 		perfect_match = False
 
 	# optimize the magnet parameters
-	if perfect_match:
-		logging.info(f"loading an optimized magnet system for ["
-		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
-	else:
+	if not perfect_match or save_name is not None:
 		logging.info(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} "
 		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, order=order, save_name=save_name)
 		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
+	else:
+		logging.info(f"loading an optimized magnet system for ["
+		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 
 	# calculate the resolution
 	total_resolution = calculate_resolution(
