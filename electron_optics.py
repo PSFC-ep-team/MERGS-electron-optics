@@ -124,7 +124,7 @@ def optimize_electron_optics(
 		result = optimize.basinhopping(
 			objective_function,
 			initial_guess,
-			niter=10,
+			niter=24,
 			T=0.,
 			take_step=scale_savy_take_step,
 			accept_test=sane_accept_test,

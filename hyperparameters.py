@@ -32,7 +32,7 @@ plt.rcParams['lines.linewidth'] = 1.5
 # configure the logger
 logging.basicConfig(
 	level=logging.INFO, filename="out.log",
-	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s %(message)s")
+	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s  %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
 
 
@@ -52,18 +52,18 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency} counts/MJ.")
-	foil_diameters = array([.03])
+	foil_diameters = array([.03, .02])
 	aperture_distances = array([.25, .30, .40, .50, .60, .80, 1.00])
 	aperture_diameters = array([.015, .02, .025, .03, .035, .04, .05])
-	frugalities = array([0.0001, 0.001, 0.01, 0.1, 1.0])
+	frugalities = array([0.0001, 0.01, 1.0])
 	aperture_distance_grid, aperture_diameter_grid = meshgrid(aperture_distances, aperture_diameters, indexing="ij")
-	resolution_grid = full((aperture_distances.size, aperture_diameters.size), 5000)
-	cost_grid = full((aperture_distances.size, aperture_diameters.size), nan)
+	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
+	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	best_cost = inf
 	best: Optional[tuple[float, float, float, float, float]] = None
 
 	with ProcessPoolExecutor(max_workers=8) as executor:
-		for foil_diameter in foil_diameters:
+		for i, foil_diameter in enumerate(foil_diameters):
 			for j, aperture_distance in enumerate(aperture_distances):
 				for k, aperture_diameter in enumerate(aperture_diameters):
 					for frugality in frugalities:
@@ -73,6 +73,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=executor)
 						foil_resolution = calculate_foil_broadening(foil_thickness)
 						if foil_resolution > target_resolution:
+							logging.info(f"skipping thru this geometry as the foil broadening is already {foil_resolution:.0f} keV")
 							break
 
 						# run the inner optimization scan
@@ -85,37 +86,38 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
 
 						# save the results
-						if resolution_grid[j, k] <= target_resolution:
-							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[j, k]
+						if resolution_grid[i, j, k] <= target_resolution:
+							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[i, j, k]
 						else:
-							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[j, k]
+							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[i, j, k]
 						if this_is_better_than_whats_in_the_grid:
-							resolution_grid[j, k] = resolution
-							cost_grid[j, k] = cost
+							resolution_grid[i, j, k] = resolution
+							cost_grid[i, j, k] = cost
 						if resolution <= target_resolution and cost < best_cost:
 							best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
 							best_cost = cost
 
 						# make a plot so the user can see our progress
-						if any(isfinite(cost_grid)):
-							if any(resolution_grid <= target_resolution):
-								vmax = cost_grid.max(where=resolution_grid <= target_resolution, initial=-inf)
+						if any(isfinite(cost_grid[i])):
+							if any(resolution_grid[i] <= target_resolution):
+								vmax = cost_grid[i].max(where=resolution_grid[i] <= target_resolution, initial=-inf)
 							else:
-								vmax = cost_grid.max()
+								vmax = cost_grid[i].max()
 							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 							ax = fig.add_subplot()
-							mesh = ax.pcolormesh(
-								aperture_distances, aperture_diameters, cost_grid.T, vmax=vmax, shading="gouraud")
+							mesh = ax.contourf(
+								aperture_distances, aperture_diameters, cost_grid[i].T, vmax=vmax, levels=10,
+								cmap="viridis_r")
 							ax.scatter(
-								aperture_distance_grid, aperture_diameter_grid, c=cost_grid, vmax=vmax)
-							ax.contour(
-								aperture_distances, aperture_diameters, resolution_grid.T,
-								levels=[target_resolution], colors=["k"])
+								aperture_distance_grid, aperture_diameter_grid, c=cost_grid[i], vmax=vmax)
+							ax.contourf(
+								aperture_distances, aperture_diameters, resolution_grid[i].T,
+								levels=[0, target_resolution, inf], colors=["none", "k"])
 							ax.set_xlabel("Aperture distance (cm)")
 							ax.set_ylabel("Aperture diameter (cm)")
 							plt.colorbar(mesh).set_label("Cost")
 							fig.tight_layout()
-							fig.savefig("generated/hyperparameter_optimization.pdf")
+							fig.savefig(f"generated/hyperparameter_optimization_{foil_diameter*100}cm.pdf")
 							plt.close(fig)
 
 						# if the resolution requirement was not met here, you can skip the higher frugalities
@@ -336,8 +338,8 @@ def find_nearest_in_permanent_cache(
 				cached_foil_diameter, cached_aperture_distance, cached_aperture_diameter, cached_frugality, cached_order = (
 					float(x) for x in input_string.split(", "))
 				distance = sqrt(
-					((foil_diameter - cached_foil_diameter)/0.15)**2 +
-					((aperture_distance - cached_aperture_distance)/0.008)**2 +
+					((foil_diameter - cached_foil_diameter)/0.015)**2 +
+					((aperture_distance - cached_aperture_distance)/0.08)**2 +
 					((aperture_diameter - cached_aperture_diameter)/0.005)**2 +
 					((log(frugality) - log(cached_frugality))/5)**2 +
 					((order - cached_order)/5)**2
