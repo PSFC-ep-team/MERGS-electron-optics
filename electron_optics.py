@@ -111,8 +111,11 @@ def optimize_electron_optics(
 
 		def scale_savy_take_step(x):
 			for i, (lower, upper) in enumerate(bounds):
-				x[i] += rng.normal(0, 0.03*(upper - lower))
-				x[i] = max(lower, min(upper, x[i]))
+				x[i] += (upper - lower)*rng.uniform(-0.05, 0.05)
+				if x[i] < lower:
+					x[i] = 2*lower - x[i]
+				elif x[i] > upper:
+					x[i] = 2*upper - x[i]
 			return x
 
 		def sane_accept_test(*, res_new, res_old):
