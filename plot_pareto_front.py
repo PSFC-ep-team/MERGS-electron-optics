@@ -73,13 +73,13 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 	performance_ax.grid()
 	parameter_ax.grid()
 
-	for resolutions, efficiencies, hyperparameters, label in fronts:
+	colors = ["#e6b648", "#2abd41", "#04d6e7", "r", "b", "m"]
+	for (resolutions, efficiencies, hyperparameters, label), color in zip(fronts, colors):
 		linestyle = "dashed" if "Ideal" in label else "solid"
-		performance_ax.plot(resolutions, efficiencies, label=label, linestyle=linestyle)
-		parameter_ax.plot(array(hyperparameters)[:, 2]*100, array(hyperparameters)[:, 3]*50, label=label)
+		performance_ax.plot(resolutions, efficiencies, label=label, linestyle=linestyle, linewidth=2, color=color)
+		parameter_ax.plot(array(hyperparameters)[:, 2]*100, array(hyperparameters)[:, 3]*50, label=label, color=color)
 
 	if len(fronts) > 1:
-		performance_ax.legend()
 		parameter_ax.legend()
 
 	performance_ax.set_xlim(0, 800)

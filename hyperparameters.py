@@ -10,6 +10,7 @@ from typing import Optional
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
@@ -86,12 +87,12 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
 
 						# save the results
+						resolution_grid[i, j, k] = min(resolution, resolution_grid[i, j, k])
 						if resolution_grid[i, j, k] <= target_resolution:
 							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[i, j, k]
 						else:
 							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[i, j, k]
 						if this_is_better_than_whats_in_the_grid:
-							resolution_grid[i, j, k] = resolution
 							cost_grid[i, j, k] = cost
 						if resolution <= target_resolution and cost < best_cost:
 							best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
@@ -99,6 +100,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 
 						# make a plot so the user can see our progress
 						if any(isfinite(cost_grid[i])):
+							vmin = cost_grid[i].min()
 							if any(resolution_grid[i] <= target_resolution):
 								vmax = cost_grid[i].max(where=resolution_grid[i] <= target_resolution, initial=-inf)
 							else:
@@ -106,10 +108,11 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 							ax = fig.add_subplot()
 							mesh = ax.contourf(
-								aperture_distances, aperture_diameters, cost_grid[i].T, vmax=vmax, levels=10,
-								cmap="viridis_r")
+								aperture_distances, aperture_diameters, cost_grid[i].T,
+								cmap="viridis_r", vmin=vmin, vmax=vmax, levels=MaxNLocator(10).tick_values(vmin, vmax))
 							ax.scatter(
-								aperture_distance_grid, aperture_diameter_grid, c=cost_grid[i], vmax=vmax)
+								aperture_distance_grid, aperture_diameter_grid, c=cost_grid[i],
+								cmap="viridis_r", vmin=vmin, vmax=vmax)
 							ax.contourf(
 								aperture_distances, aperture_diameters, resolution_grid[i].T,
 								levels=[0, target_resolution, inf], colors=["none", "k"])
