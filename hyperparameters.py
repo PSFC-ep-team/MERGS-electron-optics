@@ -48,10 +48,10 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	for the lowest cost possible, and save it to disk at the given name
 	:param name: the final filename at which to save the COSY file
 	:param target_resolution: the desired resolution at 16.75 MeV, in keV
-	:param target_efficiency: the desired number of upper DT-γ counts per MJ
+	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
-	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency} counts/MJ.")
+	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
 	foil_diameters = array([.03, .02])
 	aperture_distances = array([.25, .30, .40, .50, .60, .80, 1.00])
 	aperture_diameters = array([.015, .02, .025, .03, .035, .04, .05])
@@ -199,7 +199,7 @@ def optimize_foil_thickness(
 	:param foil_diameter: the foil diameter in m
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
-	:param target_efficiency: the desired number of upper DT-γ counts per MJ
+	:param target_efficiency: the desired number of Compton counts per photon born in the plasma
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: the optimal foil thickness in μm
 	"""
@@ -207,9 +207,8 @@ def optimize_foil_thickness(
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
 	_, geometric_efficiency, _ = foil.calculate_efficiency(
 		16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
-	nuclear_efficiency = 2.4e-5*.934/(17.6*1.6e-19)  # photons/MJ (only counting the 93% that fall above 10 MeV)
 	collimator_efficiency = 1e-9*(foil_diameter/.03)**2
-	target_foil_efficiency = target_efficiency/nuclear_efficiency/collimator_efficiency
+	target_foil_efficiency = target_efficiency/collimator_efficiency
 	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
 	total_cross_section = 0
 	scattering_cross_section = 0

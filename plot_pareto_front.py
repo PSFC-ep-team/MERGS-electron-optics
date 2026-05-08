@@ -85,10 +85,10 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 	performance_ax.set_xlim(0, 800)
 	performance_ax.xaxis.set_major_locator(MultipleLocator(200))
 	performance_ax.set_yscale("log")
-	performance_ax.set_ylim(0.1, 10)
+	performance_ax.set_ylim(1e-14, 1e-12)
 	performance_ax.set_xlabel("Resolution (keV)")
-	performance_ax.set_ylabel("Efficiency (counts/MJ)")
-	performance_ax.set_title("Performance for 16.75 MeV photons")
+	performance_ax.set_ylabel("Efficiency")
+	performance_ax.set_title("Performance at 16.75 MeV")
 	performance_fig.tight_layout()
 	performance_fig.savefig("pareto.pdf")
 
@@ -107,7 +107,7 @@ def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance
 	find the range of achievable performances for a given set of aperture parameters,
 	ignoring ion-optics and only varying foil thickness
 	"""
-	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
+	efficiencies = geomspace(1e-14, 1e-12, 9)  # Compton counts per photon born in the plasma
 	resolutions = empty_like(efficiencies)
 	hyperparameters = []
 	with ProcessPoolExecutor(max_workers=9) as executor:
@@ -125,9 +125,8 @@ def find_pareto_front_of_collimator(foil_diameter: float) -> tuple[Sequence[floa
 	find the range of achievable performances for a given foil diameter,
 	ignoring ion-optics and varying foil thickness, aperture distance, and aperture diameter
 	"""
-	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
-	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
+	# n.b. 1e-13 means you get about 1 Compton count per MJ of fusion
+	efficiencies = geomspace(1e-14, 1e-12, 9)  # Compton counts per photon born in the plasma
 
 	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_hyperparameters,
@@ -188,9 +187,8 @@ def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], 
 	max_aperture_diameter = float(re.search(r"aperture_width := ([0-9.]+)", script_content).group(1))
 	aperture_distance = float(re.search(r"drift_pre_aperture := ([0-9.]+)", script_content).group(1))
 
-	# n.b. 0.1 counts/MJ means that we can make a ±10% measurement every 10 seconds at 100 MW operation,
-	# and 10 counts/MJ means that we can make a ±10% measurement every second at 10 MW operation
-	efficiencies = geomspace(0.1, 10, 9)  # counts/MJ
+	# n.b. 1e-13 means you get about 1 Compton count per MJ of fusion
+	efficiencies = geomspace(1e-14, 1e-12, 9)  # Compton counts per photon born in the plasma
 
 	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_configuration,
