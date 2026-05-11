@@ -11,7 +11,7 @@ from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAna
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt, quantile
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
@@ -102,9 +102,9 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 						if any(isfinite(cost_grid[i])):
 							vmin = cost_grid[i].min()
 							if any(resolution_grid[i] <= target_resolution):
-								vmax = cost_grid[i].max(where=resolution_grid[i] <= target_resolution, initial=-inf)
+								vmax = quantile(cost_grid[i][resolution_grid[i] <= target_resolution], 0.9)
 							else:
-								vmax = cost_grid[i].max()
+								vmax = quantile(cost_grid[i], 0.9)
 							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 							ax = fig.add_subplot()
 							mesh = ax.contourf(
