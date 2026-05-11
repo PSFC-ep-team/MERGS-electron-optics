@@ -176,7 +176,7 @@ def optimize_parameters(
 		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			initial_guess=parameters, order=order, save_name=save_name)
+			initial_guess=parameters, method="SLSQP", order=order, save_name=save_name)
 		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
 	else:
 		logging.info(f"loading an optimized magnet system for ["

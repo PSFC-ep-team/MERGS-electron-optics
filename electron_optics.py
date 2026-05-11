@@ -158,7 +158,7 @@ def optimize_electron_optics(
 	# show and save the final result
 	if save_name is not None:
 		print(result)
-		results = run_cosy(script, solution, output_mode="file", cache=None, run_id=save_name)
+		results = run_cosy(script, solution, fast_mode=False, output_mode="file", cache=None, run_id=save_name)
 		with open(f"generated/{save_name}_map.txt", "w") as file:
 			file.write(results["map"])
 
@@ -206,6 +206,7 @@ def estimate_resolution(
 	outputs = run_cosy(
 		script,
 		parameter_vector,
+		fast_mode=True,
 		output_mode="none",
 		cache=cache)
 
@@ -236,6 +237,7 @@ def estimate_cost(
 	outputs = run_cosy(
 		script,
 		parameter_vector,
+		fast_mode=True,
 		output_mode="none",
 		cache=cache)
 
@@ -253,7 +255,7 @@ def estimate_cost(
 	return penalty
 
 
-def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
+def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_mode: bool, output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
 	if parameter_vector is None:
 		parameter_vector = [cast(float, parameter.default) for parameter in script.parameters]
@@ -266,6 +268,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 		graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
 
 		modified_content = script.content
+		# turn fast mode on or off
+		modified_content = re.sub(r"fast_mode := [A-Z]+;", f"fast_mode := {repr(fast_mode).upper()};", modified_content)
 		# turn off all graphics output
 		modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
 		# set the output filename appropriately
@@ -306,6 +310,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 		if "******" in output:
 			print(output)
 			raise RuntimeError("COSY screwed up a number format")
+		if "WARNING:" in output:
+			print(re.search(r"WARNING: ([^\n]*)$", output, re.MULTILINE).group(1))
 
 		# extract the resolution at each energy
 		lines = output.split("\n")
@@ -344,6 +350,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 
 def load_script(filename: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float, order: int) -> Script:
 	""" load the COSY script from disc into a Script object """
+	if foil_diameter > 1 or aperture_distance > 10 or aperture_diameter > 1:
+		print("I'm fairly certain your units are wrong.")
 	with open(f'{filename}.fox', 'r') as file:
 		script_content = file.read()
 	script_content = set_hyperparameters(
@@ -406,7 +414,7 @@ def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **k
 	constraints = []
 	for constraint in script.constraints:
 		def constraint_function(x, name=constraint.name):
-			return run_cosy(script, x, output_mode="none", cache=cache)[name]
+			return run_cosy(script, x, fast_mode=True, output_mode="none", cache=cache)[name]
 		constraints.append(optimize.NonlinearConstraint(
 			constraint_function, constraint.min, constraint.max, **kwargs))
 	return constraints

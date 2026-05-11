@@ -1,6 +1,8 @@
 INCLUDE 'COSY';
 PROCEDURE mergs_ion_optics;
 
+VARIABLE fast_mode 1;
+
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
 VARIABLE beam_photon_energies 1 5;
@@ -620,6 +622,7 @@ ENDPROCEDURE;
 PROCEDURE optimize_detector;
 	VARIABLE objective 1;
 	VARIABLE num_iterations 1;
+	VARIABLE max_num_iterations 1;
 	VARIABLE diff 1;
 	VARIABLE damping 1;
 	VARIABLE cost 1;
@@ -655,8 +658,13 @@ PROCEDURE optimize_detector;
 
 	{ do Levenberg-Marquardt optimization to get the best possible resolution }
 	num_iterations := 0;
+	IF fast_mode;
+		max_num_iterations := 1;
+	ELSEIF NOT(fast_mode);
+		max_num_iterations := 100;
+	ENDIF;
 
-	damping := 0.0001;
+	damping := 0.1;
 
 	{ sometimes the image plane is a bad guess; turn down the curvature if so }
 	calculate_resolution;
@@ -673,7 +681,7 @@ PROCEDURE optimize_detector;
 
 	improvement := 100000000*cost;
 
-	WHILE (improvement>0.000001*cost)*(num_iterations<100);
+	WHILE (improvement>0.000001*cost)*(num_iterations<max_num_iterations);
 
 		{ calculate the jacobian using finite differences }
 		LOOP i_ray 1 2*num_characteristic_rays;
@@ -731,6 +739,8 @@ PROCEDURE optimize_detector;
 		acceptable_step_not_achieved := TRUE;
 		WHILE acceptable_step_not_achieved*(damping<1000000);
 
+			WRITE 6 damping;
+
 			{ calculate the step for the current level of damping }
 			LOOP i_coord 1 3;
 				LOOP j_coord 1 3;
@@ -743,7 +753,7 @@ PROCEDURE optimize_detector;
 			ENDLOOP;
 			LINV damped_hessian inverse_hessian 3 3 error_flag;
 			IF error_flag#0;
-				WRITE 6 'error in matrix inversion!' error_flag;
+				WRITE 0 'WARNING: error in matrix inversion!' error_flag;
 				LOOP i_coord 1 3;  { fall back on an identity matrix }
 					LOOP j_coord 1 3;
 						IF i_coord=j_coord;
@@ -784,12 +794,12 @@ PROCEDURE optimize_detector;
 			ENDLOOP;
 			improvement := cost - new_cost;
 
-			{ if so, update the state variables }
-			IF improvement>0.1*expected_improvement;
+			{ if that looks good (or we're short on time), update the state variables }
+			IF (improvement>0.1*expected_improvement)+fast_mode;
 				cost := new_cost;
 				acceptable_step_not_achieved := FALSE;
 
-			{ if not, revert the step and increase the damping }
+			{ if it's uphill, revert the step and increase the damping }
 			ELSEIF TRUE;
 				p_detector_position := previous_guess(1);
 				p_detector_tilt := previous_guess(2);
@@ -820,7 +830,7 @@ PROCEDURE elt_spectrometer;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
 	dipole_length := p_dipole_bend_angle/180*PI*dipole_bend_radius;
 	IF p_dipole_bend_angle>180;
-		WRITE 6 'warning; the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
+		WRITE 0 'WARNING: the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
 		p_dipole_bend_angle := 180;
 	ENDIF;
 
@@ -881,6 +891,8 @@ PROCEDURE main;
 	VARIABLE objective 1;
 	VARIABLE optimizer 1;
 	VARIABLE i 1;
+
+	fast_mode := FALSE;
 
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
