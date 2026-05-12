@@ -149,8 +149,8 @@ PROCEDURE ELT_BENDING radius angle aperture N shape_in shape_out len;
 ENDPROCEDURE;
 
 { Set the fringe fields to the most accurate version. }
-PROCEDURE CONFIG_FRINGE_FIELD_MODE_ACCURATE;
-	FR 3; {fringe mode = accurate}
+PROCEDURE CONFIG_FRINGE_FIELD mode;
+	FR mode;
 ENDPROCEDURE;
 
 {
@@ -599,12 +599,15 @@ ENDPROCEDURE;
 
 PROCEDURE config_spectrometer;
 	VARIABLE order 1;
+	VARIABLE fringe_field_mode 1;
 	VARIABLE i 1;
 
 	order := 12;
-	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	central_energy := 13.5; {MeV}
+	fringe_field_mode := 2;
+	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
+	CONFIG_FRINGE_FIELD fringe_field_mode;
 
 	num_energies := 5;
 	LOOP i 1 num_energies;
@@ -753,7 +756,7 @@ PROCEDURE optimize_detector;
 			ENDLOOP;
 			LINV damped_hessian inverse_hessian 3 3 error_flag;
 			IF error_flag#0;
-				WRITE 0 'WARNING: error in matrix inversion!' error_flag;
+				WRITE 0 'WARNING, error in matrix inversion!' error_flag;
 				LOOP i_coord 1 3;  { fall back on an identity matrix }
 					LOOP j_coord 1 3;
 						IF i_coord=j_coord;
@@ -830,7 +833,7 @@ PROCEDURE elt_spectrometer;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
 	dipole_length := p_dipole_bend_angle/180*PI*dipole_bend_radius;
 	IF p_dipole_bend_angle>180;
-		WRITE 0 'WARNING: the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
+		WRITE 0 'WARNING, the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
 		p_dipole_bend_angle := 180;
 	ENDIF;
 

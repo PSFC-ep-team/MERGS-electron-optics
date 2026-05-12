@@ -282,6 +282,7 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_m
 			else:
 				modified_content = re.sub(rf"{name} *:= *[-.0-9eE]+;", f"{name} := {value};", modified_content)
 
+		# make sure the directory has COSY.bin and SYSCA.dat
 		os.makedirs("generated", exist_ok=True)
 		with open(f'generated/{run_id}.fox', 'w') as file:
 			file.write(modified_content)
@@ -290,6 +291,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_m
 				copyfile("COSY.bin", "generated/COSY.bin")
 			else:
 				raise FileNotFoundError("I can't find COSY.bin, and COSY won't run without COSY.bin!")
+		if not os.path.isfile("generated/SYSCA.dat") and os.path.isfile("SYSCA.dat"):
+			copyfile("SYSCA.dat", "generated/SYSCA.dat")
 
 		subprocess.run(
 			['cosy', run_id],
@@ -310,8 +313,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_m
 		if "******" in output:
 			print(output)
 			raise RuntimeError("COSY screwed up a number format")
-		if "WARNING:" in output:
-			print(re.search(r"WARNING: ([^\n]*)$", output, re.MULTILINE).group(1))
+		if "WARNING," in output:
+			print(re.search(r"WARNING,\s*([^\n]*)$", output, re.MULTILINE).group(1))
 
 		# extract the resolution at each energy
 		lines = output.split("\n")
