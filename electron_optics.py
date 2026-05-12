@@ -30,7 +30,7 @@ def optimize_electron_optics(
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
-	:param method: one of "SLSQP", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
+	:param method: one of "SLSQP", "COBYLA", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
 	:param save_name: a filename for the final solution
 	:param initial_guess: the parameter values at which to start the search
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
@@ -46,36 +46,52 @@ def optimize_electron_optics(
 
 	if method != "SLSQP" and method != "basin hopping":
 		# check to make sure the initial guess is valid
-		objective_function(initial_guess, script, frugality, constraints="error", cache=cache)
+		objective_function(initial_guess, script, frugality, constraints="error", smooth_mode=False, cache=cache)
 
 	# run the selected optimization algorithm
 	if method == "SLSQP":
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality, "ignore", cache),
+			args=(script, frugality, "ignore", True, cache),
 			jac="3-point",
 			bounds=bounds,
 			constraints=reformat_constraints(script, cache, jac="3-point"),
 			method='SLSQP',
 			options=dict(
-				ftol=1e-3,
+				ftol=1e-4,
 			)
 		)
 		solution = result.x
+	elif method == "COBYLA":
+		scale = array([(upper - lower)/2 for lower, upper in bounds])
+		shift = array([(lower + upper)/2 for lower, upper in bounds])
+		result = optimize.minimize(
+			rescale_function(objective_function, scale, shift),  # for COBYLA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
+			rescale_vector(initial_guess, scale, shift),
+			args=(script, frugality, "ignore", False, cache),
+			bounds=rescale_bounds(bounds, scale, shift),
+			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
+			method='COBYLA',
+			options=dict(
+				rhobeg=1e-1,
+				tol=1e-4,
+			)
+		)
+		solution = result.x*scale + shift
 	elif method == "COBYQA":
 		scale = array([(upper - lower)/2 for lower, upper in bounds])
 		shift = array([(lower + upper)/2 for lower, upper in bounds])
 		result = optimize.minimize(
 			rescale_function(objective_function, scale, shift),  # for COBYQA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
 			rescale_vector(initial_guess, scale, shift),
-			args=(script, frugality, "ignore", cache),
+			args=(script, frugality, "ignore", False, cache),
 			bounds=rescale_bounds(bounds, scale, shift),
 			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
 			method='COBYQA',
 			options=dict(
 				initial_tr_radius=1e-1,
-				final_tr_radius=1e-3,
+				final_tr_radius=1e-4,
 			)
 		)
 		solution = result.x*scale + shift
@@ -83,7 +99,7 @@ def optimize_electron_optics(
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality, "inf", cache),
+			args=(script, frugality, "inf", False, cache),
 			bounds=bounds,
 			method='Nelder-Mead',
 			options=dict(
@@ -98,7 +114,7 @@ def optimize_electron_optics(
 		result = optimize.differential_evolution(
 			objective_function,
 			bounds,
-			args=(script, frugality, "inf", cache),
+			args=(script, frugality, "inf", False, cache),
 			popsize=3*n_dims,
 			init=generate_initial_sample(initial_guess, bounds, 3*n_dims),
 			polish=False,
@@ -111,11 +127,11 @@ def optimize_electron_optics(
 
 		def scale_savy_take_step(x):
 			for i, (lower, upper) in enumerate(bounds):
-				x[i] += (upper - lower)*rng.uniform(-0.05, 0.05)
-				if x[i] < lower:
-					x[i] = 2*lower - x[i]
-				elif x[i] > upper:
+				x[i] += rng.normal(0, (upper - lower)*0.01)
+				x[i] = (x[i] - lower)%(2*(upper - lower)) + lower
+				if x[i] > upper:
 					x[i] = 2*upper - x[i]
+				assert lower <= x[i] <= upper
 			return x
 
 		def sane_accept_test(*, res_new, res_old):
@@ -129,7 +145,7 @@ def optimize_electron_optics(
 			take_step=scale_savy_take_step,
 			accept_test=sane_accept_test,
 			minimizer_kwargs=dict(
-				args=(script, frugality, "ignore", cache),
+				args=(script, frugality, "ignore", True, cache),
 				jac="3-point",
 				bounds=bounds,
 				constraints=reformat_constraints(script, cache, jac="3-point"),
@@ -158,7 +174,7 @@ def optimize_electron_optics(
 	# show and save the final result
 	if save_name is not None:
 		print(result)
-		results = run_cosy(script, solution, fast_mode=False, output_mode="file", cache=None, run_id=save_name)
+		results = run_cosy(script, solution, smooth_mode=False, output_mode="file", cache=None, run_id=save_name)
 		with open(f"generated/{save_name}_map.txt", "w") as file:
 			file.write(results["map"])
 
@@ -168,8 +184,8 @@ def optimize_electron_optics(
 			os.remove(f"generated/{filename}")
 
 	# extract the performance metrics
-	resolution = estimate_resolution(script, solution, cache)
-	cost = estimate_cost(script, solution, "ignore", cache)
+	resolution = estimate_resolution(script, solution, smooth_mode=False, cache=cache)
+	cost = estimate_cost(script, solution, "ignore", smooth_mode=False, cache=cache)
 
 	return solution, resolution, cost
 
@@ -177,7 +193,7 @@ def optimize_electron_optics(
 def objective_function(
 		parameter_vector: Sequence[float], script: Script, frugality: float,
 		constraints: Literal['ignore', 'inf', 'error'],
-		cache: dict[tuple, dict[str, Any]]) -> float:
+		smooth_mode: bool, cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate a number that quantifies the system. smaller should be better.
 	:param parameter_vector: the values of the parameters at which to evaluate it
@@ -187,26 +203,28 @@ def objective_function(
 	                    - if 'ignore', constraint biases will be added to the cost but mins and maxen will be ignored.
 	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
 	                    - if 'error', any constraint that's out of bounds will raise an error.
+	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
-	mean_resolution = estimate_resolution(script, parameter_vector, cache)
-	penalty = estimate_cost(script, parameter_vector, constraints, cache)
+	mean_resolution = estimate_resolution(script, parameter_vector, smooth_mode, cache)
+	penalty = estimate_cost(script, parameter_vector, constraints, smooth_mode, cache)
 	return frugality*penalty + 2*log(mean_resolution)
 
 
 def estimate_resolution(
 		script: Script, parameter_vector: Sequence[float],
-		cache: dict[tuple, dict[str, Any]]) -> float:
+		smooth_mode: bool, cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate the system's mean energy resolution.
 	:param parameter_vector: the values of the parameters at which to evaluate it
 	:param script: the COSY script to run with those parameters
+	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
 	outputs = run_cosy(
 		script,
 		parameter_vector,
-		fast_mode=True,
+		smooth_mode=smooth_mode,
 		output_mode="none",
 		cache=cache)
 
@@ -220,7 +238,7 @@ def estimate_resolution(
 def estimate_cost(
 		script: Script, parameter_vector: Sequence[float],
 		constraint_handling: Literal['ignore', 'inf', 'error'],
-		cache: dict[tuple, dict[str, Any]]) -> float:
+		smooth_mode: bool, cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate a number that quantifies the system's cost.
 	:param parameter_vector: the values of the parameters at which to evaluate it
@@ -229,6 +247,7 @@ def estimate_cost(
 	                    - if 'ignore', constraint biases will be added to the cost but mins and maxen will be ignored.
 	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
 	                    - if 'error', any constraint that's out of bounds will raise an error.
+	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
 	if constraint_handling not in ['ignore', 'inf', 'error']:
@@ -237,7 +256,7 @@ def estimate_cost(
 	outputs = run_cosy(
 		script,
 		parameter_vector,
-		fast_mode=True,
+		smooth_mode=smooth_mode,
 		output_mode="none",
 		cache=cache)
 
@@ -255,13 +274,13 @@ def estimate_cost(
 	return penalty
 
 
-def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_mode: bool, output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
+def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth_mode: bool, output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
 	if parameter_vector is None:
 		parameter_vector = [cast(float, parameter.default) for parameter in script.parameters]
 	assert len(parameter_vector) == len(script.parameters)
 
-	run_key = tuple(parameter_vector)
+	run_key = tuple(parameter_vector) + (smooth_mode,)
 	if cache is None or run_key not in cache:
 		if run_id is None:
 			run_id = f"proc{multiprocessing.current_process().pid}"
@@ -269,7 +288,7 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], fast_m
 
 		modified_content = script.content
 		# turn fast mode on or off
-		modified_content = re.sub(r"fast_mode := [A-Z]+;", f"fast_mode := {repr(fast_mode).upper()};", modified_content)
+		modified_content = re.sub(r"smooth_mode := [A-Z]+;", f"smooth_mode := {repr(smooth_mode).upper()};", modified_content)
 		# turn off all graphics output
 		modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
 		# set the output filename appropriately
@@ -417,7 +436,7 @@ def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **k
 	constraints = []
 	for constraint in script.constraints:
 		def constraint_function(x, name=constraint.name):
-			return run_cosy(script, x, fast_mode=True, output_mode="none", cache=cache)[name]
+			return run_cosy(script, x, smooth_mode=False, output_mode="none", cache=cache)[name]
 		constraints.append(optimize.NonlinearConstraint(
 			constraint_function, constraint.min, constraint.max, **kwargs))
 	return constraints
@@ -533,6 +552,6 @@ class Parameter:
 if __name__ == '__main__':
 	optimize_electron_optics(
 		.03, .40, .04, 0.01,
-		order=9, method="SLSQP",
+		order=9, method="COBYQA",
 		save_name="mergs_optimal_electron_optics",
 	)
