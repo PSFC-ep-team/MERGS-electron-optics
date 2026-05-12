@@ -11,7 +11,8 @@ from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAna
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt, quantile
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt, nanquantile, \
+	nanmin
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
@@ -55,8 +56,8 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
 	foil_diameters = array([.03, .02])
 	aperture_distances = array([.25, .30, .40, .50, .60, .80, 1.00])
-	aperture_diameters = array([.015, .02, .025, .03, .035, .04, .05])
-	frugalities = array([0.0001, 0.01, 1.0])
+	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
+	frugalities = array([0.0001, 0.001, 0.01, 0.1, 1.0])
 	aperture_distance_grid, aperture_diameter_grid = meshgrid(aperture_distances, aperture_diameters, indexing="ij")
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
@@ -83,28 +84,31 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 								foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 								executor=executor, final=False)
 						except RuntimeError as e:
-							logging.warning(e)
-							break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
+							if "this optimization might be impossible" in str(e):
+								logging.warning(e)
+								break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
+							else:
+								raise
 
 						# save the results
-						resolution_grid[i, j, k] = min(resolution, resolution_grid[i, j, k])
 						if resolution_grid[i, j, k] <= target_resolution:
 							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[i, j, k]
 						else:
 							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[i, j, k]
 						if this_is_better_than_whats_in_the_grid:
 							cost_grid[i, j, k] = cost
+						resolution_grid[i, j, k] = min(resolution, resolution_grid[i, j, k])
 						if resolution <= target_resolution and cost < best_cost:
 							best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
 							best_cost = cost
 
 						# make a plot so the user can see our progress
 						if any(isfinite(cost_grid[i])):
-							vmin = cost_grid[i].min()
+							vmin = nanmin(cost_grid[i])
 							if any(resolution_grid[i] <= target_resolution):
-								vmax = quantile(cost_grid[i][resolution_grid[i] <= target_resolution], 0.9)
+								vmax = nanquantile(cost_grid[i][resolution_grid[i] <= target_resolution], 0.9)
 							else:
-								vmax = quantile(cost_grid[i], 0.9)
+								vmax = nanquantile(cost_grid[i], 0.9)
 							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 							ax = fig.add_subplot()
 							mesh = ax.contourf(
@@ -113,9 +117,10 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							ax.scatter(
 								aperture_distance_grid, aperture_diameter_grid, c=cost_grid[i],
 								cmap="viridis_r", vmin=vmin, vmax=vmax)
-							ax.contourf(
-								aperture_distances, aperture_diameters, resolution_grid[i].T,
-								levels=[0, target_resolution, inf], colors=["none", "k"])
+							if any(resolution_grid <= target_resolution):
+								ax.contourf(
+									aperture_distances, aperture_diameters, resolution_grid[i].T,
+									levels=[0, target_resolution, inf], colors=["none", "k"])
 							ax.set_xlabel("Aperture distance (cm)")
 							ax.set_ylabel("Aperture diameter (cm)")
 							plt.colorbar(mesh).set_label("Cost")
@@ -176,7 +181,7 @@ def optimize_parameters(
 		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			initial_guess=parameters, method="SLSQP", order=order, save_name=save_name)
+			initial_guess=parameters, method="COBYQA", order=order, save_name=save_name)
 		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
 	else:
 		logging.info(f"loading an optimized magnet system for ["
@@ -250,7 +255,7 @@ def calculate_resolution(
 		if order is None:
 			raise TypeError("You have to pass an order if we're using COSY")
 		cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
-		cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
+		cosy_outputs = run_cosy(cosy_script, parameters, smooth_mode=False, output_mode="none")
 		map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
 		with open(map_filename, "w") as file:
 			file.write(cosy_outputs["map"])

@@ -10,7 +10,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Any, Optional, Literal, Callable, Sequence, cast
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, ones
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -21,7 +21,7 @@ os.makedirs("generated/", exist_ok=True)
 
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, order=6, method="basin hopping", save_name=None,
+		frugality: float, order=6, method="COBYQA", save_name=None,
 		initial_guess: Sequence[float] = None) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
@@ -44,7 +44,7 @@ def optimize_electron_optics(
 	bounds = [(parameter.min, parameter.max) for parameter in script.parameters]
 	n_dims = len(initial_guess)
 
-	if method != "SLSQP" and method != "basin hopping":
+	if method == "Nelder-Mead":
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraints="error", smooth_mode=False, cache=cache)
 
@@ -70,7 +70,7 @@ def optimize_electron_optics(
 			rescale_function(objective_function, scale, shift),  # for COBYLA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
 			rescale_vector(initial_guess, scale, shift),
 			args=(script, frugality, "ignore", False, cache),
-			bounds=rescale_bounds(bounds, scale, shift),
+			bounds=optimize.Bounds(lb=-ones(len(bounds)), ub=ones(len(bounds)), keep_feasible=True),
 			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
 			method='COBYLA',
 			options=dict(
@@ -86,7 +86,7 @@ def optimize_electron_optics(
 			rescale_function(objective_function, scale, shift),  # for COBYQA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
 			rescale_vector(initial_guess, scale, shift),
 			args=(script, frugality, "ignore", False, cache),
-			bounds=rescale_bounds(bounds, scale, shift),
+			bounds=optimize.Bounds(lb=-ones(len(bounds)), ub=ones(len(bounds)), keep_feasible=True),
 			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
 			method='COBYQA',
 			options=dict(
@@ -261,10 +261,9 @@ def estimate_cost(
 		cache=cache)
 
 	penalty = 0
-	for parameter, value in zip(script.parameters, parameter_vector):
-		penalty -= parameter.bias*value
-	for constraint in script.constraints:
-		value = outputs[constraint.name]
+	all_constraints = script.parameters + script.constraints
+	all_values = list(parameter_vector) + [outputs[constraint.name] for constraint in script.constraints]
+	for constraint, value in zip(all_constraints, all_values):
 		if value < constraint.min or value > constraint.max:
 			if constraint_handling == 'error':
 				raise ValueError(f"{constraint.name} is {value}, which is out of bounds [{constraint.min}, {constraint.max}]")
@@ -323,9 +322,13 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth
 		with open(f"generated/{run_id}_output.txt") as file:
 			output = file.read()
 		output = re.sub(r"[\n\r]+", "\n", output)
-		if re.search(r"(###|\$\$\$|!!!|@@@|\*\*\*) ERROR", output) or len(output) <= 4:
+		if re.search(r"(###|\$\$\$|!!!|@@@|\*\*\*) ERROR", output):
 			print(output)
-			raise RuntimeError("COSY threw an error")
+			message = re.search(r"(###|\$\$\$|!!!|@@@|\*\*\*) ERROR\s*([^\n]*)$", output, re.MULTILINE).group(2)
+			raise RuntimeError(f"COSY threw an error ({message})")
+		if len(output) <= 4:
+			print(output)
+			raise RuntimeError(f"COSY failed to generate any output")
 		if "NaN" in output:
 			print(output)
 			raise RuntimeError("COSY had a NaN")
@@ -333,7 +336,8 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth
 			print(output)
 			raise RuntimeError("COSY screwed up a number format")
 		if "WARNING," in output:
-			print(re.search(r"WARNING,\s*([^\n]*)$", output, re.MULTILINE).group(1))
+			message = re.search(r"WARNING,\s*([^\n]*)$", output, re.MULTILINE).group(1)
+			print(f"COSY warning: {message}")
 
 		# extract the resolution at each energy
 		lines = output.split("\n")
@@ -505,14 +509,6 @@ def rescale_function(function: Callable, scale: ndarray, shift: ndarray) -> Call
 def rescale_vector(x: Sequence[float], scale: ndarray, shift: ndarray) -> Sequence[float]:
 	""" convert a vector in real space to a normalized vector """
 	return (x - shift)/scale
-
-
-def rescale_bounds(bounds: list[tuple[float, float]], scale: ndarray, shift: ndarray) -> list[tuple[float, float]]:
-	""" convert bounds in real space to bounds in normalized space """
-	result = []
-	for i, (lower, upper) in enumerate(bounds):
-		result.append(((lower - shift[i])/scale[i], (upper - shift[i])/scale[i]))
-	return result
 
 
 def rescale_constraints(constraints: list[optimize.NonlinearConstraint], scale: ndarray, shift: ndarray) -> list[optimize.NonlinearConstraint]:
