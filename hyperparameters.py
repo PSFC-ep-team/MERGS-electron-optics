@@ -84,11 +84,25 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 								foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 								executor=executor, final=False)
 						except RuntimeError as e:
+							# sometimes the constraints just can't be met
 							if "this optimization might be impossible" in str(e):
 								logging.warning(e)
 								break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
+							# if it's something else, then I'm scared and confused and we should probably stop.
 							else:
-								raise
+								raise e
+						except ValueError as e:
+							# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
+							if str(e) == "Some of these rays don't hit the curved detector.":
+								logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
+								continue  # just avoid that geometry, I gess, since the map is probably not even converged.  try a different frugality.
+							# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
+							elif str(e) == "Failed to generate electron":
+								logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
+								break  # go ahead and skip this aperture geometry, but also print in case it's happening a lot
+							# if it's something else, then I'm scared and confused and we should probably stop.
+							else:
+								raise e
 
 						# save the results
 						if resolution_grid[i, j, k] <= target_resolution:
@@ -305,22 +319,9 @@ def calculate_resolution(
 		),
 	)
 
-	try:
-		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
 			incident_energy=16.75, num_recoil_particles=100_000, map_order=order,
 			executor=executor, max_workers=8 if executor else 1)
-	except ValueError as e:
-		# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
-		if str(e) == "Some of these rays don't hit the curved detector.":
-			logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
-			return inf  # shikatanai.  just avoid that geometry, I gess, since the map is probably not even converged.
-		# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
-		elif str(e) == "Failed to generate electron":
-			logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
-			return inf  # return inf to discourage that, but also print in case it's happening a lot
-		# if it's something else, then I'm scared and confused and we should probably stop.
-		else:
-			raise e
 
 	return min(5000, abs(resolution))  # don't report resolutions above 5 MeV because it gets hard to define then
 
@@ -351,7 +352,7 @@ def find_nearest_in_permanent_cache(
 					((log(frugality) - log(cached_frugality))/5)**2 +
 					((order - cached_order)/5)**2
 				)
-				if distance < best_distance:
+				if distance <= best_distance:
 					best_distance = distance
 					best_outputs = [float(x) for x in output_string.split(", ")]
 	except FileNotFoundError:
@@ -373,4 +374,4 @@ def append_to_permanent_cache(
 
 
 if __name__ == "__main__":
-	optimize_hyperparameters("MERGS cheap", 500, 1)
+	optimize_hyperparameters("MERGS cheap", 500, 1e-13)
