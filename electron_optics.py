@@ -22,7 +22,7 @@ os.makedirs("generated/", exist_ok=True)
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		frugality: float, order=6, method="COBYQA", save_name=None,
-		initial_guess: Sequence[float] = None) -> tuple[list[float], float, float]:
+		initial_guess: Sequence[float] = None, this_is_your_last_chance=False) -> tuple[list[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
@@ -33,6 +33,7 @@ def optimize_electron_optics(
 	:param method: one of "SLSQP", "COBYLA", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
 	:param save_name: a filename for the final solution
 	:param initial_guess: the parameter values at which to start the search
+	:param this_is_your_last_chance: whether to forbid recursion
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
 	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
@@ -164,14 +165,39 @@ def optimize_electron_optics(
 		raise ValueError(f"I don't support the optimization method '{method}'.")
 
 	if not result.success:
+		# if the gradient-based methods don't work
 		if method == "SLSQP" or method == "basin hopping":
 			print(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
+			# fall back on Nelder-Mead as it's the most robust
 			try:
 				return optimize_electron_optics(
 					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-					method="Nelder-Mead", save_name=save_name)
+					method="Nelder-Mead", save_name=save_name, initial_guess=initial_guess)
+			# however, be aware that we're screwed if the initial gess isn't feasible
 			except ValueError as e:
 				raise RuntimeError(f"I tried to fall back on Nelder–Mead but we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
+		# if COBYLA or COBYQA fails, it probably means they failed to find a feasible point
+		elif method == "COBYLA" or method == "COBYQA":
+			if not this_is_your_last_chance:
+				print(f'{method} was unable to find the feasible space (\"{result.message}\").  Falling back on SLSQP.')
+				# use SLSQP, as even in smooth mode it's decent at getting away from constraints
+				try:
+					better_start_point, _, _ = optimize_electron_optics(
+						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+						method="SLSQP", save_name=save_name, initial_guess=initial_guess,
+					)
+				# but it can be fragile, and of course Nelder-Mead won't work here, so be prepared for failure
+				except RuntimeError as e:
+					raise RuntimeError(f"couldn't find a feasible point.  after SLSQP failed, {e}")
+				else:
+					print(f"SLSQP seems to have worked.  let's try that again.")
+					return optimize_electron_optics(
+						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+						method=method, save_name=save_name, initial_guess=better_start_point,
+						this_is_your_last_chance=True,
+					)
+			else:
+				raise RuntimeError(f"couldn't find a feasible point with fringe fields on (\"{result.message}\").  this optimization might be impossible.")
 		else:
 			raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 
@@ -189,9 +215,15 @@ def optimize_electron_optics(
 
 	# extract the performance metrics
 	resolution = estimate_resolution(script, solution, cache)
-	cost = estimate_cost(
-		script, solution, cache,
-		constraint_handling="error", constraint_tolerance=1e-8)
+	try:
+		cost = estimate_cost(
+			script, solution, cache,
+			constraint_handling="error", constraint_tolerance=1e-6)
+	except ValueError as e:
+		if method == "SLSQP" or method == "basin hopping":
+			print(f"Warning, {method}'s solution isn't quite valid ({e}).  I hope you're okay with that.")
+		else:
+			raise
 
 	return solution, resolution, cost
 
@@ -384,10 +416,14 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth
 	return outputs
 
 
-def load_script(filename: str, foil_diameter: float, aperture_distance: float, aperture_diameter: float, order: int) -> Script:
+def load_script(filename: str, foil_diameter: float = None, aperture_distance: float = None, aperture_diameter: float = None, order: int = None) -> Script:
 	""" load the COSY script from disc into a Script object """
-	if foil_diameter > 1 or aperture_distance > 10 or aperture_diameter > 1:
-		print("I'm fairly certain your units are wrong.")
+	if foil_diameter is not None and foil_diameter > 1:
+		raise ValueError("I'm fairly certain your units are wrong.")
+	if aperture_distance is not None and aperture_distance > 10:
+		raise ValueError("I'm fairly certain your units are wrong.")
+	if aperture_diameter is not None and aperture_diameter > 1:
+		raise ValueError("I'm fairly certain your units are wrong.")
 	with open(f'{filename}.fox', 'r') as file:
 		script_content = file.read()
 	script_content = set_hyperparameters(
@@ -402,9 +438,10 @@ def load_script(filename: str, foil_diameter: float, aperture_distance: float, a
 def set_hyperparameters(content: str, **hyperparameters) -> str:
 	""" set the order of the calculation to the desired value """
 	for key, value in hyperparameters.items():
-		if not re.search(rf"{key} := [-0-9.]+;", content):
-			raise ValueError(f"This script doesn't seem to have a '{key}'.")
-		content = re.sub(rf"{key} := [-0-9.]+;", f"{key} := {value};", content)
+		if value is not None:
+			if not re.search(rf"{key} := [-0-9.]+;", content):
+				raise ValueError(f"This script doesn't seem to have a '{key}'.")
+			content = re.sub(rf"{key} := [-0-9.]+;", f"{key} := {value};", content)
 	return content
 
 

@@ -604,7 +604,11 @@ PROCEDURE config_spectrometer;
 
 	order := 12;
 	central_energy := 13.5; {MeV}
-	fringe_field_mode := 2;
+	IF smooth_mode;
+		fringe_field_mode := 0;
+	ELSEIF NOT(smooth_mode);
+		fringe_field_mode := 2;
+	ENDIF;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 	CONFIG_FRINGE_FIELD fringe_field_mode;

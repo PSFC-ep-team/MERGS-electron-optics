@@ -11,8 +11,7 @@ from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAna
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, meshgrid, seterr, log, sqrt, nanquantile, \
-	nanmin
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
@@ -54,11 +53,10 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
-	foil_diameters = array([.03, .02])
-	aperture_distances = array([.25, .30, .40, .50, .60, .80, 1.00])
+	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
+	aperture_distances = array([.30, .40, .50, .60, .80, 1.00])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
-	frugalities = array([0.0001, 0.001, 0.01, 0.1, 1.0])
-	aperture_distance_grid, aperture_diameter_grid = meshgrid(aperture_distances, aperture_diameters, indexing="ij")
+	frugalities = array([0.0001, 0.01, 1.0])
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	best_cost = inf
@@ -90,7 +88,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 								break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
 							# if it's something else, then I'm scared and confused and we should probably stop.
 							else:
-								raise e
+								raise
 						except ValueError as e:
 							# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
 							if str(e) == "Some of these rays don't hit the curved detector.":
@@ -102,7 +100,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 								break  # go ahead and skip this aperture geometry, but also print in case it's happening a lot
 							# if it's something else, then I'm scared and confused and we should probably stop.
 							else:
-								raise e
+								raise
 
 						# save the results
 						if resolution_grid[i, j, k] <= target_resolution:
@@ -120,26 +118,26 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 						if any(isfinite(cost_grid[i])):
 							vmin = nanmin(cost_grid[i])
 							if any(resolution_grid[i] <= target_resolution):
-								vmax = nanquantile(cost_grid[i][resolution_grid[i] <= target_resolution], 0.9)
+								vmed = nanmedian(cost_grid[i][resolution_grid[i] <= target_resolution])
 							else:
-								vmax = nanquantile(cost_grid[i], 0.9)
+								vmed = nanmedian(cost_grid[i])
+							vmax = 2*vmed - vmin
 							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 							ax = fig.add_subplot()
 							mesh = ax.contourf(
-								aperture_distances, aperture_diameters, cost_grid[i].T,
-								cmap="viridis_r", vmin=vmin, vmax=vmax, levels=MaxNLocator(10).tick_values(vmin, vmax))
-							ax.scatter(
-								aperture_distance_grid, aperture_diameter_grid, c=cost_grid[i],
-								cmap="viridis_r", vmin=vmin, vmax=vmax)
+								aperture_distances*100, aperture_diameters*100, cost_grid[i].T,
+								cmap="viridis_r", levels=MaxNLocator(10).tick_values(vmin, vmax),
+								extend="max")
+							mesh.set_edgecolor("face")
 							if any(resolution_grid <= target_resolution):
 								ax.contourf(
-									aperture_distances, aperture_diameters, resolution_grid[i].T,
+									aperture_distances*100, aperture_diameters*100, resolution_grid[i].T,
 									levels=[0, target_resolution, inf], colors=["none", "k"])
 							ax.set_xlabel("Aperture distance (cm)")
 							ax.set_ylabel("Aperture diameter (cm)")
-							plt.colorbar(mesh).set_label("Cost")
+							plt.colorbar(mesh, extend="max").set_label("Cost")
 							fig.tight_layout()
-							fig.savefig(f"generated/hyperparameter_optimization_{foil_diameter*100}cm.pdf")
+							fig.savefig(f"generated/hyperparameter_optimization_{name}_{foil_diameter*100}cm.pdf")
 							plt.close(fig)
 
 						# if the resolution requirement was not met here, you can skip the higher frugalities
@@ -349,7 +347,7 @@ def find_nearest_in_permanent_cache(
 					((foil_diameter - cached_foil_diameter)/0.015)**2 +
 					((aperture_distance - cached_aperture_distance)/0.08)**2 +
 					((aperture_diameter - cached_aperture_diameter)/0.005)**2 +
-					((log(frugality) - log(cached_frugality))/5)**2 +
+					((log(frugality) - log(cached_frugality))/10)**2 +
 					((order - cached_order)/5)**2
 				)
 				if distance <= best_distance:
@@ -374,4 +372,4 @@ def append_to_permanent_cache(
 
 
 if __name__ == "__main__":
-	optimize_hyperparameters("MERGS cheap", 500, 1e-13)
+	optimize_hyperparameters("MERGS cheap 2", 500, 1e-13)

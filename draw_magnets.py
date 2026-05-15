@@ -5,44 +5,9 @@ from typing import Tuple, Dict, List, Optional
 
 from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where, argmin, argmax
 
-FILE_TO_OPTIMIZE = "mergs_ion_optics"
-PARAMETER_STRING = """
-central_energy :=   13.5000000000000;
-foil_width :=  0.300000000000000E-01;
-foil_height :=  0.300000000000000E-01;
-aperture_width :=  0.200000000000000E-01;
-aperture_height :=  0.200000000000000E-01;
-p_m5_quad_field :=  0.756662454872243E-01;
-p_m5_hex_field :=   0.00000000000000;
-p_dipole_field :=  0.578743399906601;
-p_m5_radius :=  0.191477907138417E-01;
-p_m5_length :=  0.765911628553666E-01;
-p_dipole_halfwidth :=  0.150000000000000;
-p_dipole_bend_angle :=   60.0000000000000;
-drift_pre_aperture :=  0.500000000000000;
-p_drift_pre_bend :=  0.120495281118770;
-p_shape_in_1 :=  0.210648866313864;
-p_shape_in_2 :=   2.10947467400425;
-p_shape_in_3 :=   11.2775919930731;
-p_shape_in_4 :=   0.00000000000000;
-p_shape_in_5 :=   0.00000000000000;
-p_shape_out_1 :=  0.388441416990384;
-p_shape_out_2 :=  -2.78204594089117;
-p_shape_out_3 :=   2.49405533126583;
-p_shape_out_4 :=   0.00000000000000;
-p_shape_out_5 :=   0.00000000000000;
-p_detector_position :=  0.321631582752980;
-p_detector_tilt :=   1.00000000000000;
-p_detector_curvature :=   0.00000000000000;
+from electron_optics import run_cosy, load_script
 
-dipole_length :=  0.845629395273196E-01;
-dipole_max_bend_radius :=  0.125326434195856;
-dipole_central_bend_radius :=  0.807516589689236E-01;
-dipole_min_bend_radius :=  0.417799693443293E-01;
-dipole_gap_height :=  0.213520247611307E-01;
-detector_right :=  0.215684069428413;
-detector_left :=  0.284316838822764;
-"""
+FILENAME = "generated/MERGS fancy_electron_optics"
 CENTRAL_ENERGY = 13.5
 
 
@@ -51,7 +16,10 @@ def draw_magnets():
 	generate a nice vector graphic of the electron-optic system design.
 	unlike COSY this will not include rays but will include face shaping.
 	"""
-	parameters = parse_parameters(PARAMETER_STRING)
+	parameters = run_cosy(
+		load_script(FILENAME),
+		parameter_vector=None, smooth_mode=False,
+		output_mode="none")
 
 	paths = []
 	x = .05
@@ -113,17 +81,7 @@ def draw_magnets():
 		parameters["detector_right"],
 	)
 
-	write_SVG("picture.svg", paths)
-
-
-def parse_parameters(output: str) -> Dict[str, float]:
-	parameters = {}
-	for line in re.split(r"\r?\n", output):
-		line_parse = re.match(r"^\s*([a-z0-9_]+)\s*:=\s*([-+0-9.e]+);$", line, re.IGNORECASE)
-		if line_parse is not None:
-			key, value = line_parse.groups()
-			parameters[key] = float(value)
-	return parameters
+	write_SVG(FILENAME + ".svg", paths)
 
 
 def draw_plane(
