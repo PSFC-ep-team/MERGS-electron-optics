@@ -54,7 +54,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	"""
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
 	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
-	aperture_distances = array([.30, .40, .50, .60, .80, 1.00])
+	aperture_distances = array([.30, .40, .50, .60, .80])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
 	frugalities = array([0.0001, 0.01, 1.0])
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
@@ -194,7 +194,8 @@ def optimize_parameters(
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, method="COBYQA", order=order, save_name=save_name)
-		append_to_permanent_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
+		if not perfect_match:
+			append_to_permanent_geometry_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
 	else:
 		logging.info(f"loading an optimized magnet system for ["
 		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")

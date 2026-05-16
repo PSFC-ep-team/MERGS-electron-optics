@@ -222,6 +222,9 @@ def optimize_electron_optics(
 	except ValueError as e:
 		if method == "SLSQP" or method == "basin hopping":
 			print(f"Warning, {method}'s solution isn't quite valid ({e}).  I hope you're okay with that.")
+			cost = estimate_cost(
+				script, solution, cache,
+				constraint_handling="ignore")
 		else:
 			raise
 
