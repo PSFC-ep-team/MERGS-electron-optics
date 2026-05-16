@@ -342,6 +342,8 @@ ENDPROCEDURE;
 { calculate the ray errors in each beam }
 PROCEDURE calculate_resolution;
 	VARIABLE momentum_ratio 1;
+	VARIABLE sin_x_angle 1;
+	VARIABLE ray_x 1 1000;
 	VARIABLE x 1;
 	VARIABLE z 1;
 	VARIABLE weight_sum 1;
@@ -358,6 +360,16 @@ PROCEDURE calculate_resolution;
 
 	{ first look at the rays to get the resolution }
 	transform_rays TRUE;
+
+	{ extract the positions, accounting for detector thickness }
+	LOOP i_ray 1 num_characteristic_rays;
+		LOOP i_depth 1 2;
+			z := (i_depth - 1.5)*detector_thickness;
+			momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
+			sin_x_angle := output_rays(i_ray,2)/momentum_ratio;
+			ray_x(i_ray*2 + i_depth - 2) := output_rays(i_ray,1) + z*sin_x_angle/SQRT(1 - sin_x_angle^2); {m}
+		ENDLOOP;
+	ENDLOOP;
 
 	LOOP i_energy 1 num_energies;
 		photon_energy := beam_photon_energies(i_energy);
@@ -392,9 +404,7 @@ PROCEDURE calculate_resolution;
 		LOOP i_ray 1 num_characteristic_rays;
 			IF ray_photon_energies(i_ray)=photon_energy;
 				LOOP i_depth 1 2;
-					z := (i_depth - 1.5)*detector_thickness;
-					momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
-					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
+					x := ray_x(i_ray*2 + i_depth - 2);
 					mean := mean + x*ray_weights(i_ray)/weight_sum; {m}
 				ENDLOOP;
 			ENDIF;
@@ -405,9 +415,7 @@ PROCEDURE calculate_resolution;
 		LOOP i_ray 1 num_characteristic_rays;
 			IF ray_photon_energies(i_ray)=photon_energy;
 				LOOP i_depth 1 2;
-					z := (i_depth - 1.5)*detector_thickness;
-					momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
-					x := output_rays(i_ray,1) + z*output_rays(i_ray,2)/momentum_ratio; {m}
+					x := ray_x(i_ray*2 + i_depth - 2);
 					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy)*SQRT(ray_weights(i_ray)/weight_sum); {MeV}
 					variance := variance + ((x - mean)/dispersion(i_energy))^2*ray_weights(i_ray)/weight_sum; {MeV^2}
 				ENDLOOP;
@@ -1056,7 +1064,7 @@ PROCEDURE main;
 	WRITE out 'dipole aspect ratio:' dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=50 |max=inf |bias=-1/1.0 |unit=cm}}
-	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/2.0 |unit=cm}}
+	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
 	WRITE out 'system length:' system_length*100 'cm';
 	WRITE out 'system depth:' system_depth*100 'cm';
