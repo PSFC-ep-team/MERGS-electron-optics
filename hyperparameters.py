@@ -179,32 +179,42 @@ def optimize_parameters(
 	"""
 	order = FINAL_ORDER if final else SCAN_ORDER
 
-	# check the permanent cache
+	# check the permanent magnet geometry optimization cache
 	try:
-		parameters, cost, perfect_match = find_nearest_in_permanent_cache(
+		parameters, cost, perfect_match = find_nearest_in_permanent_geometry_cache(
 			foil_diameter, aperture_distance, aperture_diameter, frugality, order)
-	except ValueError:
+	except FileNotFoundError:
 		parameters, cost = None, None
 		perfect_match = False
 
-	# optimize the magnet parameters
-	if not perfect_match or save_name is not None:
+	# if it wasn't in there, optimize the magnet parameters
+	if parameters is None or cost is None or not perfect_match or save_name is not None:
 		logging.info(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} "
 		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, method="COBYQA", order=order, save_name=save_name)
 		if not perfect_match:
-			append_to_permanent_geometry_cache(foil_diameter, aperture_distance, aperture_diameter, frugality, order, parameters, cost)
+			append_to_permanent_geometry_cache(
+				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+				parameters, cost)
 	else:
 		logging.info(f"loading an optimized magnet system for ["
 		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 
-	# calculate the resolution
-	total_resolution = calculate_resolution(
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-		"mergs_electron_optics", parameters,
-		order=order, executor=executor)
+	# check the permanent Monte Carlo cache
+	try:
+		total_resolution = load_from_permanent_MC_cache(
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order)
+	except (KeyError, FileNotFoundError) as _:
+		# if it wasn't in there, calculate the resolution
+		total_resolution = calculate_resolution(
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
+			"mergs_electron_optics", parameters,
+			order=order, executor=executor)
+		append_to_permanent_MC_cache(
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order,
+			total_resolution)
 
 	# log, save, and return
 	logging.info(f" -> {total_resolution:.0f} keV, {cost:.2f} $")
@@ -311,7 +321,7 @@ def calculate_foil_broadening(foil_thickness: float) -> float:
 	return (initial_energy - min_exit_energy)*1000
 
 
-def find_nearest_in_permanent_cache(
+def find_nearest_in_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 ) -> tuple[list[float], float, bool]:
 	best_distance = inf
@@ -333,16 +343,16 @@ def find_nearest_in_permanent_cache(
 					best_distance = distance
 					best_outputs = [float(x) for x in output_string.split(", ")]
 	except FileNotFoundError:
-		raise ValueError("cache is absent")
+		raise FileNotFoundError("geometry cache is absent")
 	if best_outputs is None:
-		raise ValueError("cache is empty")
+		raise FileNotFoundError("cache is empty")
 	else:
 		parameters = best_outputs[:-1]
 		cost = best_outputs[-1]
 		return parameters, cost, best_distance == 0
 
 
-def append_to_permanent_cache(
+def append_to_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		parameters: list[float], cost: float):
 	with open("generated/magnet_optimization_cache.txt", mode="a") as file:
@@ -350,5 +360,31 @@ def append_to_permanent_cache(
 		           f"{', '.join(str(x) for x in parameters)}, {cost}\n")
 
 
+def load_from_permanent_MC_cache(
+		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
+) -> float:
+	target = f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}"
+	try:
+		with open("generated/monte_carlo_cache.txt", mode="r") as file:
+			for line in file.readlines():
+				input_string, output_string = line.split(": ")
+				if input_string == target:
+					return float(output_string)
+	except FileNotFoundError:
+		raise FileNotFoundError("MC cache is absent")
+	raise ValueError("desired simulation not present in cache")
+
+
+def append_to_permanent_MC_cache(
+		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
+		resolution: float):
+	with open("generated/monte_carlo_cache.txt", mode="a") as file:
+		file.write(f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
+		           f"{resolution}\n")
+
+
 if __name__ == "__main__":
-	optimize_hyperparameters("MERGS cheap 2", 500, 1e-13)
+	optimize_hyperparameters("MERGS500", 500, 1e-13)
+	# optimize_hyperparameters("MERGS400", 400, 1e-13)
+	# optimize_hyperparameters("MERGS300", 300, 1e-13)
+	# optimize_hyperparameters("MERGS200", 200, 1e-13)
