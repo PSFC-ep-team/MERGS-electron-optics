@@ -372,7 +372,7 @@ def load_from_permanent_MC_cache(
 					return float(output_string)
 	except FileNotFoundError:
 		raise FileNotFoundError("MC cache is absent")
-	raise ValueError("desired simulation not present in cache")
+	raise KeyError("desired simulation not present in cache")
 
 
 def append_to_permanent_MC_cache(
