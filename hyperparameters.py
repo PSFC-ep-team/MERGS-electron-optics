@@ -242,16 +242,15 @@ def optimize_foil_thickness(
 def calculate_resolution(
 		foil_diameter: float, foil_thickness: float,
 		aperture_distance: float, aperture_diameter: float,
-		magnet_system_filename: Optional[str], parameters: Optional[list[float]],
-		executor: Optional[Executor], order: Optional[int] = None) -> float:
+		magnet_system_filename: str, parameters: Optional[list[float]],
+		executor: Optional[Executor], order: int = None) -> float:
 	"""
 	evaluate a complete design to determine its total energy resolution
 	:param foil_diameter: the foil diameter in m
 	:param foil_thickness: the foil thickness in μm
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
-	:param magnet_system_filename: name of a file containing the electron optics configuration and default parameters,
-	                               or None to neglect the electron optics and just worry about the foil and aperture
+	:param magnet_system_filename: name of a file containing the electron optics configuration and default parameters
 	:param parameters: the electron optics parameters, if different from what's currently in the file
 	:param order: the number of COSY orders to use in the calculation
 	:param executor: the process pool to use for the multiprocessed bits
@@ -262,39 +261,18 @@ def calculate_resolution(
 	if foil_broadening > 5000:  # if it's really really thick, skip this calculation as it might not work properly
 		return 5000
 
-	if magnet_system_filename is not None:
-		# use COSY to get the transfer map matrix and optimal detector shape
-		if order is None:
-			raise TypeError("You have to pass an order if we're using COSY")
-		cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
-		cosy_outputs = run_cosy(cosy_script, parameters, smooth_mode=False, output_mode="none")
-		map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
-		with open(map_filename, "w") as file:
-			file.write(cosy_outputs["map"])
-		central_energy = cosy_outputs["central_energy"]
-		tilt_angle = degrees(cosy_outputs["p_detector_tilt"])
-		if cosy_outputs["p_detector_curvature"] != 0:
-			arc_radius = -100/cosy_outputs["p_detector_curvature"]
-		else:
-			arc_radius = -inf
-
+	# use COSY to get the transfer map matrix and optimal detector shape
+	cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
+	cosy_outputs = run_cosy(cosy_script, parameters, smooth_mode=False, output_mode="none")
+	map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
+	with open(map_filename, "w") as file:
+		file.write(cosy_outputs["map"])
+	central_energy = cosy_outputs["central_energy"]
+	tilt_angle = degrees(cosy_outputs["p_detector_tilt"])
+	if cosy_outputs["p_detector_curvature"] != 0:
+		arc_radius = -100/cosy_outputs["p_detector_curvature"]
 	else:
-		# or make the map ideal so that we don't have to worry about the magnets
-		order = 1
-		map_filename = f"generated/ideal_map.txt"
-		ideal_map = (
-			"0.0  0.0  0.0  0.0  0.0  100000\n"
-			"0.0  0.0  0.0  0.0  0.0  010000\n"
-			"0.0  0.0  1.0  0.0  0.0  001000\n"
-			"0.0  0.0  0.0  1.0  0.0  000100\n"
-			"0.0  0.0  0.0  0.0  1.0  000010\n"
-			"1.0  0.0  0.0  0.0  0.0  000001\n"
-		)
-		with open(map_filename, "w") as file:
-			file.write(ideal_map)
-		central_energy = 10
-		tilt_angle = 0
-		arc_radius = inf
+		arc_radius = -inf
 
 	# use MPR_Tools to calculate the resolution
 	monte_carlo = PerformanceAnalyzer(

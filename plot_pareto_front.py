@@ -1,22 +1,41 @@
 """
 code for finding the full Pareto curve of a design with fixed magnet geometry
 """
+import logging
 import os.path
-import re
-from concurrent.futures import Future
+from concurrent.futures import Future, Executor
 from concurrent.futures.process import ProcessPoolExecutor
-from typing import Sequence, Callable
+from multiprocessing import current_process
+from typing import Sequence, Callable, Optional
 
 import matplotlib.pyplot as plt
+from MPR_Tools.analysis.performance import PerformanceAnalyzer
+from MPR_Tools.core.conversion_foil import ConversionFoil
+from MPR_Tools.core.hodoscope import Hodoscope
+from MPR_Tools.core.spectrometer import MPRSpectrometer
 from matplotlib.ticker import MultipleLocator
-from numpy import inf, geomspace, stack, concatenate, array, loadtxt, savetxt
+from numpy import inf, geomspace, stack, concatenate, array, loadtxt, savetxt, degrees, zeros
 from numpy.ma.core import empty_like
 from scipy import optimize
 
-from hyperparameters import calculate_resolution, optimize_foil_thickness
+from electron_optics import run_cosy, load_script
+from hyperparameters import optimize_foil_thickness
 
 
 ORDER = 9
+
+# generate and save the ideal map, in case we need it
+IDEAL_MAP_FILENAME = f"generated/ideal_map.txt"
+IDEAL_MAP = (
+	"0.0  0.0  0.0  0.0  0.0  100000\n"
+	"0.0  0.0  0.0  0.0  0.0  010000\n"
+	"0.0  0.0  1.0  0.0  0.0  001000\n"
+	"0.0  0.0  0.0  1.0  0.0  000100\n"
+	"0.0  0.0  0.0  0.0  1.0  000010\n"
+	"1.0  0.0  0.0  0.0  0.0  000001\n"
+)
+with open(IDEAL_MAP_FILENAME, "w") as file:
+	file.write(IDEAL_MAP)
 
 
 def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]):
@@ -42,7 +61,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 			resolutions = front[:, 0]
 			efficiencies = front[:, 1]
 			hyperparameters = front[:, 2:]
-			print(f"re-loaded a previously calculated pareto front for {name}")
+			logging.info(f"re-loaded a previously calculated pareto front for {name}")
 
 		else:
 			if type(design) is str:
@@ -115,7 +134,8 @@ def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance
 			foil_thickness = optimize_foil_thickness(foil_diameter, aperture_distance, aperture_diameter, efficiency, executor)
 			resolutions[i] = calculate_resolution(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-				magnet_system_filename=None, parameters=None, executor=executor)
+				map_filename=IDEAL_MAP_FILENAME, central_energy=10,
+				tilt_angle=0, arc_radius=inf, executor=executor)
 			hyperparameters.append((foil_diameter, foil_thickness, aperture_distance, aperture_diameter))
 	return resolutions, efficiencies, hyperparameters
 
@@ -145,8 +165,9 @@ def find_suitable_hyperparameters(
 			foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
 		resolution = calculate_resolution(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-			magnet_system_filename=None, parameters=None, executor=None)
-		print(f"{efficiency:.3g}: {hyperparameters} -> {resolution:.2f}")
+			map_filename=IDEAL_MAP_FILENAME, central_energy=10,
+			tilt_angle=0, arc_radius=inf, executor=None)
+		logging.info(f"{efficiency:.3g}: [{foil_diameter:.4g}, {foil_thickness:.4g}, {aperture_distance:.4g}, {aperture_diameter:.4g}] -> {resolution:.2f}")
 		return resolution
 
 	solution = optimize.minimize(
@@ -181,27 +202,33 @@ def find_pareto_front_of_magnet_design(filename: str) -> tuple[Sequence[float], 
 	find the range of achievable performances for a given magnet system,
 	accounting for all sources of degradation and only varying foil thickness, foil diameter, and aperture diameter
 	"""
-	with open(f"{filename}.fox") as file:
-		script_content = file.read()
-	max_foil_diameter = float(re.search(r"foil_width := ([0-9.]+)", script_content).group(1))
-	max_aperture_diameter = float(re.search(r"aperture_width := ([0-9.]+)", script_content).group(1))
-	aperture_distance = float(re.search(r"drift_pre_aperture := ([0-9.]+)", script_content).group(1))
-
 	# n.b. 1e-13 means you get about 1 Compton count per MJ of fusion
 	efficiencies = geomspace(1e-14, 1e-12, 9)  # Compton counts per photon born in the plasma
 
 	resolutions, hyperparameters = zip(*run_concurrently(
 		find_suitable_configuration,
-		efficiencies, max_foil_diameter, aperture_distance, max_aperture_diameter, filename,
+		efficiencies, filename,
 	))
 
 	return resolutions, efficiencies, hyperparameters
 
 
 def find_suitable_configuration(
-		efficiency: float, max_foil_diameter: float,
-		aperture_distance: float, max_aperture_diameter: float,
-		magnet_system_filename: str) -> tuple[float, tuple[float, float, float, float]]:
+		efficiency: float, magnet_system_filename: str) -> tuple[float, tuple[float, float, float, float]]:
+
+	magnet_system_info = run_cosy(
+		load_script(magnet_system_filename),
+		parameter_vector=None, smooth_mode=False, output_mode="none")
+
+	map_filename = f"generated/proc{current_process().pid}_map.txt"
+	with open(map_filename, "w") as file:
+		file.write(magnet_system_info["map"])
+	central_energy = magnet_system_info["central_energy"]
+	max_foil_diameter = magnet_system_info["foil_width"]
+	aperture_distance = magnet_system_info["drift_pre_aperture"]
+	max_aperture_diameter = magnet_system_info["aperture_width"]
+	detector_tilt_angle = degrees(magnet_system_info["p_detector_tilt"])
+	detector_arc_radius = -100/magnet_system_info["p_detector_curvature"]
 
 	def objective(hyperparameters: Sequence[float]) -> float:
 		foil_diameter, aperture_diameter = hyperparameters
@@ -209,8 +236,12 @@ def find_suitable_configuration(
 			foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
 		resolution = calculate_resolution(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-			magnet_system_filename, parameters=None, executor=None, order=ORDER)
-		print(f"{efficiency:.3g}: {hyperparameters} -> {resolution:.2f}")
+			map_filename,
+			central_energy=central_energy,
+			tilt_angle=detector_tilt_angle,
+			arc_radius=detector_arc_radius,
+			executor=None)
+		logging.info(f"{efficiency:.3g}: [{foil_diameter:.4g}, {foil_thickness:.4g}, {aperture_distance:.4g}, {aperture_diameter:.4g}] -> {resolution:.2f}")
 		return resolution
 
 	solution = optimize.minimize(
@@ -218,8 +249,8 @@ def find_suitable_configuration(
 		[max_foil_diameter, max_aperture_diameter],
 		method="Nelder-Mead",
 		bounds=[
-			(.001, max_foil_diameter),
-			(.001, max_aperture_diameter),
+			(.01, max_foil_diameter),
+			(.01, max_aperture_diameter),
 		],
 		options=dict(
 			initial_simplex=[
@@ -240,6 +271,53 @@ def find_suitable_configuration(
 	return solution.fun, (foil_diameter, foil_thickness, aperture_distance, aperture_diameter)
 
 
+def calculate_resolution(
+		foil_diameter: float, foil_thickness: float,
+		aperture_distance: float, aperture_diameter: float,
+		map_filename: str, central_energy: float, tilt_angle: float, arc_radius: float,
+		executor: Optional[Executor]) -> float:
+	"""
+	evaluate a complete design to determine its total energy resolution
+	:param foil_diameter: the foil diameter in m
+	:param foil_thickness: the foil thickness in μm
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture diameter in m
+	:param map_filename: name of a file containing the electron optics map coefficients
+	:param central_energy: the central energy in MeV to use with the map
+	:param tilt_angle: the detector tilt in degrees
+	:param arc_radius: the radius of curvature of the detector in cm
+	:param executor: the process pool to use for the multiprocessed bits
+	:return: resolution at 16.75 MeV (keV)
+	"""
+	# use MPR_Tools to calculate the resolution
+	monte_carlo = PerformanceAnalyzer(
+		MPRSpectrometer(
+			conversion_foil=ConversionFoil(
+				foil_radius=foil_diameter/2,
+				thickness=foil_thickness,
+				aperture_distance=aperture_distance,
+				aperture_radius=aperture_diameter/2,
+				foil_material="B",
+			),
+			transfer_map_path=map_filename,
+			reference_energy=central_energy, min_energy=6, max_energy=18,
+			hodoscope=Hodoscope(
+				tilt_angle=tilt_angle,
+				arc_radius=arc_radius,
+				channels=zeros((2, 2))
+			),
+			run_directory="generated/monte-carlo-dump/",
+		),
+	)
+
+	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+		incident_energy=16.75, num_recoil_particles=10_000, map_order=ORDER,
+		executor=executor, max_workers=8 if executor else 1)
+
+	return abs(resolution)
+
+
+
 def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwargs):
 	results: list[Future] = []
 
@@ -255,4 +333,4 @@ def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwa
 
 
 if __name__ == "__main__":
-	plot_pareto_fronts("generated/medium")
+	plot_pareto_fronts("generated/MERGS400_electron_optics", "generated/MERGS300_electron_optics", "generated/MERGS200_electron_optics")
