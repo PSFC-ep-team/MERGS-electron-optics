@@ -3,7 +3,7 @@ cosy.*
 *.DAT
 generated/*
 pic*.pdf
-pic*.svg
+mergs_electron_optics.svg
 .idea/*
 __pycache__/*
 pareto.pdf

@@ -1,23 +1,22 @@
 from __future__ import annotations
 
+import os
 import re
-from typing import Tuple, Dict, List, Optional
+from typing import Tuple, List, Optional
 
 from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where, argmin, argmax
 
 from electron_optics import run_cosy, load_script
 
-FILENAME = "generated/MERGS fancy_electron_optics"
-CENTRAL_ENERGY = 13.5
 
 
-def draw_magnets():
+def draw_magnets(filename):
 	"""
 	generate a nice vector graphic of the electron-optic system design.
 	unlike COSY this will not include rays but will include face shaping.
 	"""
 	parameters = run_cosy(
-		load_script(FILENAME),
+		load_script(filename),
 		parameter_vector=None, smooth_mode=False,
 		output_mode="none")
 
@@ -68,6 +67,7 @@ def draw_magnets():
 			parameters["p_shape_out_4"],
 			parameters["p_shape_out_5"],
 		],
+		parameters["central_energy"],
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
@@ -81,7 +81,7 @@ def draw_magnets():
 		parameters["detector_right"],
 	)
 
-	write_SVG(FILENAME + ".svg", paths)
+	write_SVG(filename + ".svg", paths)
 
 
 def draw_plane(
@@ -160,9 +160,9 @@ def draw_multipole_magnet(
 def draw_bending_magnet(
 		graphic: List[Path], x: float, y: float, θ: float,
 		length: float, field: float, min_bend_radius: float, max_bend_radius: float, gap_height: float,
-		in_shape_parameters: List[float], out_shape_parameters: List[float],
+		in_shape_parameters: List[float], out_shape_parameters: List[float], central_energy: float,
 ) -> Tuple[float, float, float]:
-	central_momentum = (0.5110 + CENTRAL_ENERGY)*1.602e-13/2.998e8  # kg*m/s
+	central_momentum = (0.5110 + central_energy)*1.602e-13/2.998e8  # kg*m/s
 	central_bend_radius = central_momentum/(1.602e-19*field)  # m
 	bend_angle = length/central_bend_radius  # radians
 	x_center = x - central_bend_radius*sin(θ)
@@ -319,4 +319,7 @@ class Path:
 
 
 if __name__ == "__main__":
-	draw_magnets()
+	for dirpath, dirnames, filenames in os.walk("."):
+		for filename in filenames:
+			if filename.endswith(".fox") and filename != "cosy.fox" and not re.match(r"^proc[0-9]+", filename):
+				draw_magnets(os.path.join(dirpath, filename[:-4]))
