@@ -202,9 +202,9 @@ def optimize_parameters(
 		logging.info(f"loading an optimized magnet system for ["
 		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 
-	# check the permanent Monte Carlo cache
+	# check the permanent Monte Carlo resolution cache
 	try:
-		total_resolution = load_from_permanent_MC_cache(
+		total_resolution = load_from_permanent_resolution_cache(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order)
 	except (KeyError, FileNotFoundError) as _:
 		# if it wasn't in there, calculate the resolution
@@ -212,7 +212,7 @@ def optimize_parameters(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 			"mergs_electron_optics", parameters,
 			order=order, executor=executor)
-		append_to_permanent_MC_cache(
+		append_to_permanent_resolution_cache(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order,
 			total_resolution)
 
@@ -234,10 +234,20 @@ def optimize_foil_thickness(
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: the optimal foil thickness in μm
 	"""
-	# first use a quick MC to calculate the geometric efficiency
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
-	_, geometric_efficiency, _ = foil.calculate_efficiency(
-		16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
+
+	# check the permanent Monte Carlo efficiency cache
+	try:
+		geometric_efficiency = load_from_permanent_efficiency_cache(
+			foil_diameter, aperture_distance, aperture_diameter)
+	except (KeyError, FileNotFoundError) as _:
+		# if it wasn't in there, use a quick MC to calculate the geometric efficiency
+		_, geometric_efficiency, _ = foil.calculate_efficiency(
+			16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
+		append_to_permanent_efficiency_cache(
+			foil_diameter, aperture_distance, aperture_diameter,
+			geometric_efficiency)
+
 	collimator_efficiency = 1e-9*(foil_diameter/.03)**2
 	target_foil_efficiency = target_efficiency/collimator_efficiency
 	target_scattering_efficiency = target_foil_efficiency/geometric_efficiency
@@ -247,6 +257,7 @@ def optimize_foil_thickness(
 		total_cross_section += interaction.get_cross_section(16.75)
 		if interaction.generates_recoil_particles:
 			scattering_cross_section += interaction.get_cross_section(16.75)
+
 	return -log1p(-target_scattering_efficiency/scattering_cross_section*total_cross_section)/total_cross_section/1e-6
 
 
@@ -321,6 +332,29 @@ def calculate_foil_broadening(foil_thickness: float) -> float:
 	return (initial_energy - min_exit_energy)*1000
 
 
+def load_from_permanent_efficiency_cache(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+) -> float:
+	target = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}"
+	try:
+		with open("generated/monte_carlo_cache.txt", mode="r") as file:
+			for line in file.readlines():
+				input_string, output_string = line.split(": ")
+				if input_string == target:
+					return float(output_string)
+	except FileNotFoundError:
+		raise FileNotFoundError("efficiency cache is absent")
+	raise KeyError("desired geometry not present in cache")
+
+
+def append_to_permanent_efficiency_cache(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		geometric_efficiency: float):
+	with open("generated/monte_carlo_cache.txt", mode="a") as file:
+		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}: "
+		           f"{geometric_efficiency}\n")
+
+
 def find_nearest_in_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 ) -> tuple[list[float], float, bool]:
@@ -360,7 +394,7 @@ def append_to_permanent_geometry_cache(
 		           f"{', '.join(str(x) for x in parameters)}, {cost}\n")
 
 
-def load_from_permanent_MC_cache(
+def load_from_permanent_resolution_cache(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 ) -> float:
 	target = f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}"
@@ -375,7 +409,7 @@ def load_from_permanent_MC_cache(
 	raise KeyError("desired simulation not present in cache")
 
 
-def append_to_permanent_MC_cache(
+def append_to_permanent_resolution_cache(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		resolution: float):
 	with open("generated/monte_carlo_cache.txt", mode="a") as file:
