@@ -337,7 +337,7 @@ def load_from_permanent_efficiency_cache(
 ) -> float:
 	target = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}"
 	try:
-		with open("generated/monte_carlo_cache.txt", mode="r") as file:
+		with open("generated/efficiency_cache.txt", mode="r") as file:
 			for line in file.readlines():
 				input_string, output_string = line.split(": ")
 				if input_string == target:
@@ -350,7 +350,7 @@ def load_from_permanent_efficiency_cache(
 def append_to_permanent_efficiency_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		geometric_efficiency: float):
-	with open("generated/monte_carlo_cache.txt", mode="a") as file:
+	with open("generated/efficiency_cache.txt", mode="a") as file:
 		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}: "
 		           f"{geometric_efficiency}\n")
 
@@ -399,7 +399,7 @@ def load_from_permanent_resolution_cache(
 ) -> float:
 	target = f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}"
 	try:
-		with open("generated/monte_carlo_cache.txt", mode="r") as file:
+		with open("generated/resolution_cache.txt", mode="r") as file:
 			for line in file.readlines():
 				input_string, output_string = line.split(": ")
 				if input_string == target:
@@ -412,7 +412,7 @@ def load_from_permanent_resolution_cache(
 def append_to_permanent_resolution_cache(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		resolution: float):
-	with open("generated/monte_carlo_cache.txt", mode="a") as file:
+	with open("generated/resolution_cache.txt", mode="a") as file:
 		file.write(f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
 		           f"{resolution}\n")
 
