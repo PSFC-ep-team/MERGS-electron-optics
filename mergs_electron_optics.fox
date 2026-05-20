@@ -1,8 +1,6 @@
 INCLUDE 'COSY';
 PROCEDURE mergs_ion_optics;
 
-VARIABLE smooth_mode 1;
-
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
 VARIABLE beam_photon_energies 1 5;
@@ -60,9 +58,6 @@ VARIABLE ray_weights 1 500;
 VARIABLE num_characteristic_rays 1;
 VARIABLE num_dispersive_rays 1;
 
-VARIABLE all_rays_valid 1;
-VARIABLE nearest_valid_curvature 1;
-
 VARIABLE beam_min_x 1;
 VARIABLE beam_max_x 1;
 VARIABLE beam_min_y 1;
@@ -71,7 +66,7 @@ VARIABLE beam_max_r 1;
 VARIABLE beam_width 1;
 VARIABLE beam_height 1;
 
-VARIABLE ray_error 1 1000;
+VARIABLE ray_is_valid 1 500;
 VARIABLE position 1 5;
 VARIABLE dispersion 1 5;
 VARIABLE resolution 1 5;
@@ -217,11 +212,9 @@ PROCEDURE transform_rays project_to_detector;
 	{ save the output ray coordinates that COSY has calculated }
 	SRAY output_ray_vectors;
 
-	{ keep an eye out for any invalid rays }
-	all_rays_valid := TRUE;
-	nearest_valid_curvature := p_detector_curvature;
-
 	LOOP i_ray 1 num_rays;
+		ray_is_valid(i_ray) := TRUE;
+
 		LOOP i_coord 1 8;
 			input_ray(i_coord) := input_rays(i_ray,i_coord);
 			output_ray(i_coord) := output_ray_vectors(i_coord)|(i_ray + 1);  { don't forget the +1 because COSY dumps an extra central ray with SRAY }
@@ -258,18 +251,7 @@ PROCEDURE transform_rays project_to_detector;
 				distance := (coef_B - SQRT(coef_B^2 - coef_A*coef_C))/coef_A;
 			ELSEIF TRUE;
 				distance := coef_B/coef_A;  { if the ray doesn't hit the arc, fudge it and flag it }
-				all_rays_valid := FALSE;
-				coef_A := (x0*cos_yaw + z0*sin_yaw)^2;  { calculate what the curvature would have to be for this to work }
-				coef_B := -(x0*cos_yaw - z0*sin_yaw)*(sin_yaw*cos_tilt + cos_yaw*sin_tilt);
-				coef_C := (cos_yaw*cos_tilt - sin_yaw*sin_tilt)^2;
-				IF p_detector_curvature>0;
-					nearest_valid_curvature := MIN(nearest_valid_curvature, coef_B/coef_A + SQRT(coef_B^2 + coef_A*coef_C)/coef_A);
-				ELSEIF TRUE;
-					nearest_valid_curvature := MAX(nearest_valid_curvature, coef_B/coef_A - SQRT(coef_B^2 + coef_A*coef_C)/coef_A);
-				ENDIF;
-				IF nearest_valid_curvature#nearest_valid_curvature;  { if the calculation failed in a nanny way, panic and set the curvature to zero }
-					nearest_valid_curvature := 0;
-				ENDIF;
+				ray_is_valid(i_ray) := FALSE;
 			ENDIF;
 			x := x0 + distance*sin_yaw;
 			z := z0 + distance*cos_yaw;
@@ -282,8 +264,9 @@ PROCEDURE transform_rays project_to_detector;
 				output_ray(1) := ASIN(q*p_detector_curvature)/p_detector_curvature;
 				detector_rotation := ASIN(q*p_detector_curvature);
 			ELSEIF TRUE;
-				output_ray(1) := PI/2/p_detector_curvature;  { if the ray doesn't hit the arc, fudge it }
+				output_ray(1) := PI/2/p_detector_curvature;  { if the ray doesn't hit the arc, fudge it and flag it }
 				detector_rotation := PI/2;
+				ray_is_valid(i_ray) := FALSE;
 			ENDIF;
 			{modify a to be relative to the detector's local normal vector}
 			relative_yaw := yaw + p_detector_tilt + detector_rotation;
@@ -416,7 +399,6 @@ PROCEDURE calculate_resolution;
 			IF ray_photon_energies(i_ray)=photon_energy;
 				LOOP i_depth 1 2;
 					x := ray_x(i_ray*2 + i_depth - 2);
-					ray_error(i_ray*2 + i_depth - 2) := (x - mean)/dispersion(i_energy)*SQRT(ray_weights(i_ray)/weight_sum); {MeV}
 					variance := variance + ((x - mean)/dispersion(i_energy))^2*ray_weights(i_ray)/weight_sum; {MeV^2}
 				ENDLOOP;
 			ENDIF;
@@ -426,8 +408,15 @@ PROCEDURE calculate_resolution;
 
 		IF mean#mean;  { if the mean is NaN, that probably means the map is having overflow problems }
 			position(i_energy) := 0;
-			resolution(i_energy) := 1/0;  { set the resolution to Infinity }
+			resolution(i_energy) := 1/0;  { set the resolution to infinity }
 		ENDIF;
+		LOOP i_ray 1 num_characteristic_rays;
+			IF ray_photon_energies(i_ray)=photon_energy;
+				IF NOT(ray_is_valid(i_ray));
+					resolution(i_energy) := 1/0;  { also abandon this calculation and set resolution to infinity if any miss the detector }
+				ENDIF;
+			ENDIF;
+		ENDLOOP;
 	ENDLOOP;
 ENDPROCEDURE;
 
@@ -612,11 +601,7 @@ PROCEDURE config_spectrometer;
 
 	order := 12;
 	central_energy := 13.5; {MeV}
-	IF smooth_mode;
-		fringe_field_mode := 0;
-	ELSEIF NOT(smooth_mode);
-		fringe_field_mode := 2;
-	ENDIF;
+	fringe_field_mode := 2;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	CONFIG_AS_ELECTRON_BEAM central_energy;
 	CONFIG_FRINGE_FIELD fringe_field_mode;
@@ -632,227 +617,6 @@ PROCEDURE config_spectrometer;
 	beam_colors(5) := 2; {blue}
 ENDPROCEDURE;
 
-{ determine the detector tilt angle and curvature that best goes with this design }
-{ this function will edit the map to be defined at the center of the detector }
-PROCEDURE optimize_detector;
-	VARIABLE objective 1;
-	VARIABLE num_iterations 1;
-	VARIABLE max_num_iterations 1;
-	VARIABLE diff 1;
-	VARIABLE damping 1;
-	VARIABLE cost 1;
-	VARIABLE new_cost 1;
-	VARIABLE improvement 1;
-	VARIABLE expected_improvement 1;
-	VARIABLE unperturbed_ray_error 1 1000;
-	VARIABLE jacobian 1 1000 3;
-	VARIABLE gradient 1 3;
-	VARIABLE raw_hessian 1 3 3;
-	VARIABLE damped_hessian 1 3 3;
-	VARIABLE inverse_hessian 1 3 3;
-	VARIABLE previous_guess 1 3;
-	VARIABLE step 1 3;
-	VARIABLE acceptable_step_not_achieved 1;
-	VARIABLE error_flag 1;
-	VARIABLE i_ray 1;
-	VARIABLE i_coord 1;
-	VARIABLE j_coord 1;
-
-	{ move the map to the first-order-focus position to simplify the math }
-	ELT_DRIFT_LENGTH -ME(1,2)/ME(2,2);
-
-	{ as an initial guess, make the detector coincident with the image plane }
-	p_detector_position := MAX(0, MIN(2, current_map_position));
-	p_detector_tilt := MAX(-1, MIN(1, ATAN(-ME(1,26)/(ME(2,2)*ME(1,6)))));
-	p_detector_curvature := MAX(-10, MIN(0,
-		2*ME(1,1)*(
-			ME(1,26)*(ME(1,66) - ME(1,26)*ME(2,6)*ME(1,1)) -
-			ME(1,6)*(ME(1,266) - ME(2,26)*ME(1,26)*ME(1,1)))
-		/(ME(1,6)^2 + (ME(1,26)*ME(1,1))^2)^1.5
-	));
-
-	{ do Levenberg-Marquardt optimization to get the best possible resolution }
-	num_iterations := 0;
-	IF smooth_mode;
-		max_num_iterations := 1;
-	ELSEIF NOT(smooth_mode);
-		max_num_iterations := 100;
-	ENDIF;
-
-	damping := 1.0;
-
-	{ sometimes the image plane is a bad guess; turn down the curvature if so }
-	calculate_resolution;
-	IF NOT(all_rays_valid);
-		p_detector_curvature := nearest_valid_curvature;
-		calculate_resolution;
-	ENDIF;
-
-	{ calculate the residuals at the initial point }
-	cost := 0;
-	LOOP i_ray 1 2*num_characteristic_rays;
-		cost := cost + 0.5*ray_error(i_ray)^2;
-	ENDLOOP;
-
-	improvement := 100000000*cost;
-
-	WHILE (improvement>0.000001*cost)*(num_iterations<max_num_iterations);
-
-		{ calculate the jacobian using finite differences }
-		LOOP i_ray 1 2*num_characteristic_rays;
-			unperturbed_ray_error(i_ray) := ray_error(i_ray);
-		ENDLOOP;
-		previous_guess(1) := p_detector_position;
-		previous_guess(2) := p_detector_tilt;
-		previous_guess(3) := p_detector_curvature;
-
-		diff := 0.00000001;
-		{ calculate the finite difference gradient in dimension 1 }
-		p_detector_position := previous_guess(1) + diff;
-		calculate_resolution;
-		p_detector_position := previous_guess(1);
-		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,1) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
-		ENDLOOP;
-		{ calculate the finite difference gradient in dimension 2 }
-		p_detector_tilt := previous_guess(2) + diff;
-		calculate_resolution;
-		p_detector_tilt := previous_guess(2);
-		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,2) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
-		ENDLOOP;
-		{ calculate the finite difference gradient in dimension 3 }
-		IF p_detector_curvature>0;
-			diff := -diff;  { always step toward zero to avoid boundary problems }
-		ENDIF;
-		p_detector_curvature := previous_guess(3) + diff;
-		calculate_resolution;
-		p_detector_curvature := previous_guess(3);
-		LOOP i_ray 1 2*num_characteristic_rays;
-			jacobian(i_ray,3) := (ray_error(i_ray) - unperturbed_ray_error(i_ray))/diff;
-		ENDLOOP;
-
-		{ don't forget to reset the residual vector when you're done }
-		LOOP i_ray 1 2*num_characteristic_rays;
-			ray_error(i_ray) := unperturbed_ray_error(i_ray);
-		ENDLOOP;
-
-		{ multiply the jacobian by its transpose to get the approximate hessian }
-		LOOP i_coord 1 3;
-			LOOP j_coord 1 3;
-				raw_hessian(i_coord,j_coord) := 0;
-				LOOP i_ray 1 2*num_characteristic_rays;
-					raw_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord) + jacobian(i_ray,i_coord)*jacobian(i_ray,j_coord);
-				ENDLOOP;
-			ENDLOOP;
-		ENDLOOP;
-
-		{ multiply the jacobian by the residuals to get the gradient }
-		LOOP i_coord 1 3;
-			gradient(i_coord) := 0;
-			LOOP i_ray 1 2*num_characteristic_rays;
-				gradient(i_coord) := gradient(i_coord) + jacobian(i_ray,i_coord)*ray_error(i_ray);
-			ENDLOOP;
-		ENDLOOP;
-
-		{ deal with any infinities on a coordinate-by-coordinate basis }
-		LOOP i_coord 1 3;
-			IF gradient(i_coord)#gradient(i_coord);
-				gradient(i_coord) := 0;
-				LOOP j_coord 1 3;
-					IF i_coord=j_coord;
-						raw_hessian(i_coord,j_coord) := 1;
-					ELSEIF i_coord#j_coord;
-						raw_hessian(i_coord,j_coord) := 0;
-						raw_hessian(j_coord,i_coord) := 0;
-					ENDIF;
-				ENDLOOP;
-			ENDIF;
-		ENDLOOP;
-
-		{ do the line search }
-		acceptable_step_not_achieved := TRUE;
-		WHILE acceptable_step_not_achieved*(damping<1000000);
-
-			{ calculate the step for the current level of damping }
-			LOOP i_coord 1 3;
-				LOOP j_coord 1 3;
-					IF i_coord=j_coord;
-						damped_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord) + damping;
-					ELSEIF i_coord#j_coord;
-						damped_hessian(i_coord,j_coord) := raw_hessian(i_coord,j_coord);
-					ENDIF;
-				ENDLOOP;
-			ENDLOOP;
-			LINV damped_hessian inverse_hessian 3 3 error_flag;
-			IF error_flag#0;
-				WRITE 0 'WARNING, error in matrix inversion!' error_flag;
-				LOOP i_coord 1 3;  { fall back on an identity matrix }
-					LOOP j_coord 1 3;
-						IF i_coord=j_coord;
-							inverse_hessian(i_coord,j_coord) := 1;
-						ELSEIF i_coord#j_coord;
-							inverse_hessian(i_coord,j_coord) := 0;
-						ENDIF;
-					ENDLOOP;
-				ENDLOOP;
-			ENDIF;
-			LOOP i_coord 1 3;
-				step(i_coord) := 0;
-				LOOP j_coord 1 3;
-					step(i_coord) := step(i_coord) - inverse_hessian(i_coord,j_coord)*gradient(j_coord);
-				ENDLOOP;
-			ENDLOOP;
-
-			{ take the step and coerce it into bounds }
-			p_detector_position := MAX(0, MIN(2, previous_guess(1) + step(1)));
-			p_detector_tilt := MAX(-1, MIN(1, previous_guess(2) + step(2)));
-			p_detector_curvature := MAX(-10, MIN(0, previous_guess(3) + step(3)));
-			calculate_resolution;
-			IF NOT(all_rays_valid);
-				p_detector_curvature := nearest_valid_curvature;
-				calculate_resolution;
-			ENDIF;
-
-			{ estimate the new objective function at the new point }
-			expected_improvement := 0;
-			LOOP i_coord 1 3;
-				expected_improvement := expected_improvement - gradient(i_coord)*step(i_coord);
-			ENDLOOP;
-
-			{ calculate the actual new objective function at the new point }
-			new_cost := 0;
-			LOOP i_ray 1 2*num_characteristic_rays;
-				new_cost := new_cost + 0.5*ray_error(i_ray)^2;
-			ENDLOOP;
-			improvement := cost - new_cost;
-
-			{ if that looks good (or we're short on time), update the state variables }
-			IF (improvement>0.1*expected_improvement)+smooth_mode;
-				cost := new_cost;
-				acceptable_step_not_achieved := FALSE;
-
-			{ if it's uphill, revert the step and increase the damping }
-			ELSEIF TRUE;
-				p_detector_position := previous_guess(1);
-				p_detector_tilt := previous_guess(2);
-				p_detector_curvature := previous_guess(3);
-				damping := damping*13;
-			ENDIF;
-
-		ENDWHILE;
-
-		IF damping>0.000001;
-			damping := damping/8;
-		ENDIF;
-		num_iterations := num_iterations + 1;
-
-	ENDWHILE;
-
-	{ adjust the mapped location in case we moved the focal plane }
-	ELT_DRIFT_LENGTH p_detector_position-current_map_position;
-ENDPROCEDURE;
-
 PROCEDURE elt_spectrometer;
 	VARIABLE central_momentum 1;
 	VARIABLE shape_in 1 5;
@@ -863,10 +627,12 @@ PROCEDURE elt_spectrometer;
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
 	dipole_length := p_dipole_bend_angle/180*PI*dipole_bend_radius;
 	IF p_dipole_bend_angle>180;
+		WRITE 6 'WARNING, the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
 		WRITE 0 'WARNING, the dipole cant really bend that far.  Im cutting it off at 180 degrees, but be warned that the results youre now getting are inconsistent.';
 		p_dipole_bend_angle := 180;
 	ENDIF;
 	IF dipole_bend_radius<0.1;
+		WRITE 6 'WARNING, the dipole radius must be positive.  Im bumping it up to 10 cm, but be warned that the results youre now getting are inconsistent.';
 		WRITE 0 'WARNING, the dipole radius must be positive.  Im bumping it up to 10 cm, but be warned that the results youre now getting are inconsistent.';
 		dipole_bend_radius := 0.1;
 	ENDIF;
@@ -925,11 +691,7 @@ PROCEDURE main;
 	VARIABLE out 1;
 	VARIABLE out_filename 100;
 	VARIABLE y_scale 1;
-	VARIABLE objective 1;
-	VARIABLE optimizer 1;
 	VARIABLE i 1;
-
-	smooth_mode := FALSE;
 
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
@@ -959,27 +721,27 @@ PROCEDURE main;
 	drift_pre_aperture := 0.40;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.023424472411485403; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
+	p_m5_quad_field := 0.019072374785014334; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
 	p_m5_hex_field := 0;
-	p_dipole_field := 0.10989501812268992; {{PARAM |min=0.023 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.32327424492493495; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_dipole_field := 0.14044072858119316; {{PARAM |min=0.023 |max=1.1 |bias=0 |unit=T}}
+	p_m5_length := 0.16034519201850045; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
 	p_dipole_bend_angle := 60.0; {{PARAM |min=10 |max=60 |bias=0 |unit=deg}}
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.36965692211155865; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.053441991743040776; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 1.7075682224428745; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 11.16115306434562;  {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_drift_pre_bend := 0.05; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+	p_shape_in_1 := 1.0; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 5.899042989309969; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 6.028788769149026; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
 	p_shape_in_5 := 0;
-	p_shape_out_1 := 0.013948168829917992; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -2.1930964129549273; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 0.47178905977153707; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := -0.4953201064979361; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -1.1625391438736645; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 0.6300147086766411; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 	p_shape_out_5 := 0;
-	p_detector_position := 0;
-	p_detector_tilt := 0;
-	p_detector_curvature := 0;
+	p_detector_position := 0.6782198698989073; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
+    p_detector_tilt := 0.0; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+    p_detector_curvature := 0.0; {{PARAM |min=-5 |max=0 |bias=0 |unit=1/m}}
 
 	{ set the detector thickness }
 	detector_thickness := 0.02; {m}
@@ -990,7 +752,6 @@ PROCEDURE main;
 	gen_rays;
 
 	elt_spectrometer;
-	optimize_detector;
 	evaluate_spectrometer;
 
 	WRITE out 'central_energy := '&SF(central_energy, '(G22.15)')&';';
@@ -1056,15 +817,15 @@ PROCEDURE main;
 	WRITE out '';
 
 	WRITE out 'm5 beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
-	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
+	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1000 |unit=W}}
+	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1000 |unit=W}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=0 |max=inf |bias=-1/1000 |unit=W}}
-	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=50 |max=inf |bias=-1/1.0 |unit=cm}}
-	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=0 |max=inf |bias=-1/1.0 |unit=cm}}
+	WRITE out 'focal plane length:' focal_plane_length*100 'cm'; {{CONSTRAINT |min=20 |max=100 |bias=0 |unit=cm}}
+	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
 	WRITE out 'system length:' system_length*100 'cm';
 	WRITE out 'system depth:' system_depth*100 'cm';

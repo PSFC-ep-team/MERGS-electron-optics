@@ -52,6 +52,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
 	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
+	logging.info("---")
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
 	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
 	aperture_distances = array([.30, .40, .50, .60, .80])
@@ -193,7 +194,7 @@ def optimize_parameters(
 		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
-			initial_guess=parameters, method="COBYQA", order=order, save_name=save_name)
+			initial_guess=parameters, method="COBYQA+SLSQP", order=order, save_name=save_name)
 		if not perfect_match:
 			append_to_permanent_geometry_cache(
 				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
@@ -285,7 +286,7 @@ def calculate_resolution(
 
 	# use COSY to get the transfer map matrix and optimal detector shape
 	cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
-	cosy_outputs = run_cosy(cosy_script, parameters, smooth_mode=False, output_mode="none")
+	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
 	map_filename = f"generated/proc{multiprocessing.current_process().pid}_map.txt"
 	with open(map_filename, "w") as file:
 		file.write(cosy_outputs["map"])

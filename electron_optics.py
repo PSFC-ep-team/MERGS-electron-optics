@@ -3,6 +3,7 @@ code for evaluating and optimizing the magnet system using COSY
 """
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import os
 import re
@@ -10,7 +11,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Any, Optional, Literal, Callable, Sequence, cast
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, ones
+from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, ones, isfinite
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -30,12 +31,23 @@ def optimize_electron_optics(
 	:param aperture_diameter: the aperture size in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
-	:param method: one of "SLSQP", "COBYLA", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping"
+	:param method: one of "SLSQP", "COBYLA", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping",
+	               or a plus-separated list of those
 	:param save_name: a filename for the final solution
 	:param initial_guess: the parameter values at which to start the search
 	:param this_is_your_last_chance: whether to forbid recursion
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
+	if "+" in method:
+		methods = method.split("+")
+		for method in methods[:-1]:
+			initial_guess, _, _ = optimize_electron_optics(
+				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+				method, save_name, initial_guess)
+		return optimize_electron_optics(
+			foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+			methods[-1], save_name, initial_guess)
+
 	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
 
 	cache = {}
@@ -46,6 +58,9 @@ def optimize_electron_optics(
 	n_dims = len(initial_guess)
 
 	if method == "Nelder-Mead":
+		# project into bounds
+		for i in range(len(initial_guess)):
+			initial_guess[i] = min(max(bounds[i][0], initial_guess), bounds[i][1])
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraint_handling="error", cache=cache)
 
@@ -54,7 +69,7 @@ def optimize_electron_optics(
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality, cache, "ignore", 0.0, True),
+			args=(script, frugality, cache, "ignore", 0.0),
 			jac="3-point",
 			bounds=bounds,
 			constraints=reformat_constraints(script, cache, jac="3-point"),
@@ -70,7 +85,7 @@ def optimize_electron_optics(
 		result = optimize.minimize(
 			rescale_function(objective_function, scale, shift),  # for COBYLA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
 			rescale_vector(initial_guess, scale, shift),
-			args=(script, frugality, cache, "ignore", 0.0, False),
+			args=(script, frugality, cache, "ignore", 0.0),
 			bounds=optimize.Bounds(lb=-ones(len(bounds)), ub=ones(len(bounds)), keep_feasible=True),
 			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
 			method='COBYLA',
@@ -87,7 +102,7 @@ def optimize_electron_optics(
 		result = optimize.minimize(
 			rescale_function(objective_function, scale, shift),  # for COBYQA, you have to scale the variables for it to work well.  scipy has this functionality bilt-in but it doesn't work.
 			rescale_vector(initial_guess, scale, shift),
-			args=(script, frugality, cache, "ignore", 0.0, False),
+			args=(script, frugality, cache, "ignore", 0.0),
 			bounds=optimize.Bounds(lb=-ones(len(bounds)), ub=ones(len(bounds)), keep_feasible=True),
 			constraints=rescale_constraints(reformat_constraints(script, cache), scale, shift),
 			method='COBYQA',
@@ -102,7 +117,7 @@ def optimize_electron_optics(
 		result = optimize.minimize(
 			objective_function,
 			initial_guess,
-			args=(script, frugality, cache, "inf", 0.0, False),
+			args=(script, frugality, cache, "inf", 0.0),
 			bounds=bounds,
 			method='Nelder-Mead',
 			options=dict(
@@ -117,7 +132,7 @@ def optimize_electron_optics(
 		result = optimize.differential_evolution(
 			objective_function,
 			bounds,
-			args=(script, frugality, cache, "inf", 0.0, False),
+			args=(script, frugality, cache, "inf", 0.0),
 			popsize=3*n_dims,
 			init=generate_initial_sample(initial_guess, bounds, 3*n_dims),
 			polish=False,
@@ -149,7 +164,7 @@ def optimize_electron_optics(
 			take_step=scale_savy_take_step,
 			accept_test=sane_accept_test,
 			minimizer_kwargs=dict(
-				args=(script, frugality, cache, "ignore", 0.0, True),
+				args=(script, frugality, cache, "ignore", 0.0),
 				jac="3-point",
 				bounds=bounds,
 				constraints=reformat_constraints(script, cache, jac="3-point"),
@@ -167,20 +182,23 @@ def optimize_electron_optics(
 	if not result.success:
 		# if the gradient-based methods don't work
 		if method == "SLSQP" or method == "basin hopping":
-			print(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
-			# fall back on Nelder-Mead as it's the most robust
-			try:
-				return optimize_electron_optics(
-					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-					method="Nelder-Mead", save_name=save_name, initial_guess=initial_guess)
-			# however, be aware that we're screwed if the initial gess isn't feasible
-			except ValueError as e:
-				raise RuntimeError(f"I tried to fall back on Nelder–Mead but we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
+			if "incompatible constraints" in result.message:
+				logging.warning(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
+				# fall back on Nelder-Mead as it's the most robust
+				try:
+					return optimize_electron_optics(
+						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+						method="Nelder-Mead", save_name=save_name, initial_guess=initial_guess)
+				# however, be aware that we're screwed if the initial gess isn't feasible
+				except ValueError as e:
+					raise RuntimeError(f"I tried to fall back on Nelder–Mead but we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
+			else:
+				logging.warning(f'The parameter optimization failed but maybe it\'s fine? ("{result.message}")')
 		# if COBYLA or COBYQA fails, it probably means they failed to find a feasible point
 		elif method == "COBYLA" or method == "COBYQA":
 			if not this_is_your_last_chance:
-				print(f'{method} was unable to find the feasible space (\"{result.message}\").  Falling back on SLSQP.')
-				# use SLSQP, as even in smooth mode it's decent at getting away from constraints
+				logging.warning(f'{method} was unable to find the feasible space ("{result.message}").  Falling back on SLSQP.')
+				# use SLSQP, as even when there are smoothness problems it's decent at getting away from constraints
 				try:
 					better_start_point, _, _ = optimize_electron_optics(
 						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
@@ -190,7 +208,7 @@ def optimize_electron_optics(
 				except RuntimeError as e:
 					raise RuntimeError(f"couldn't find a feasible point.  after SLSQP failed, {e}")
 				else:
-					print(f"SLSQP seems to have worked.  let's try that again.")
+					logging.info(f"SLSQP seems to have worked.  let's try that again.")
 					return optimize_electron_optics(
 						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
 						method=method, save_name=save_name, initial_guess=better_start_point,
@@ -204,7 +222,7 @@ def optimize_electron_optics(
 	# show and save the final result
 	if save_name is not None:
 		print(result)
-		results = run_cosy(script, solution, smooth_mode=False, output_mode="file", cache=None, run_id=save_name)
+		results = run_cosy(script, solution, output_mode="file", cache=None, run_id=save_name)
 		with open(f"generated/{save_name}_map.txt", "w") as file:
 			file.write(results["map"])
 
@@ -221,7 +239,7 @@ def optimize_electron_optics(
 			constraint_handling="error", constraint_tolerance=1e-6)
 	except ValueError as e:
 		if method == "SLSQP" or method == "basin hopping":
-			print(f"Warning, {method}'s solution isn't quite valid ({e}).  I hope you're okay with that.")
+			logging.warning(f"Warning, {method}'s solution isn't quite valid ({e}).  I hope you're okay with that.")
 			cost = estimate_cost(
 				script, solution, cache,
 				constraint_handling="ignore")
@@ -235,7 +253,7 @@ def objective_function(
 		parameter_vector: Sequence[float], script: Script, frugality: float,
 		cache: dict[tuple, dict[str, Any]],
 		constraint_handling: Literal['ignore', 'inf', 'error'],
-		constraint_tolerance=0.0, smooth_mode=False) -> float:
+		constraint_tolerance=0.0) -> float:
 	"""
 	run COSY, read its output, and calculate a number that quantifies the system. smaller should be better.
 	:param parameter_vector: the values of the parameters at which to evaluate it
@@ -246,28 +264,25 @@ def objective_function(
 	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
 	                    - if 'error', any constraint that's out of bounds will raise an error.
 	:param constraint_tolerance: absolute amount by which each constraint is allowed to be violated
-	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
-	mean_resolution = estimate_resolution(script, parameter_vector, cache, smooth_mode)
-	penalty = estimate_cost(script, parameter_vector, cache, constraint_handling, constraint_tolerance, smooth_mode)
+	mean_resolution = estimate_resolution(script, parameter_vector, cache)
+	penalty = estimate_cost(script, parameter_vector, cache, constraint_handling, constraint_tolerance)
 	return frugality*penalty + 2*log(mean_resolution)
 
 
 def estimate_resolution(
 		script: Script, parameter_vector: Sequence[float],
-		cache: dict[tuple, dict[str, Any]], smooth_mode=False) -> float:
+		cache: dict[tuple, dict[str, Any]]) -> float:
 	"""
 	run COSY, read its output, and calculate the system's mean energy resolution.
 	:param parameter_vector: the values of the parameters at which to evaluate it
 	:param script: the COSY script to run with those parameters
-	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
 	outputs = run_cosy(
 		script,
 		parameter_vector,
-		smooth_mode=smooth_mode,
 		output_mode="none",
 		cache=cache)
 
@@ -282,7 +297,7 @@ def estimate_cost(
 		script: Script, parameter_vector: Sequence[float],
 		cache: dict[tuple, dict[str, Any]],
 		constraint_handling: Literal['ignore', 'inf', 'error'],
-		constraint_tolerance=0.0, smooth_mode=False) -> float:
+		constraint_tolerance=0.0) -> float:
 	"""
 	run COSY, read its output, and calculate a number that quantifies the system's cost.
 	:param parameter_vector: the values of the parameters at which to evaluate it
@@ -292,7 +307,6 @@ def estimate_cost(
 	                    - if 'inf', any constraint that's out of bounds will add inf to the result.
 	                    - if 'error', any constraint that's out of bounds will raise an error.
 	:param constraint_tolerance: absolute amount by which each constraint is allowed to be violated
-	:param smooth_mode: whether to turn on "smooth mode", which restricts LM inside COSY to keep things differentiable
 	:param cache: the saved COSY runs
 	"""
 	if constraint_handling not in ['ignore', 'inf', 'error']:
@@ -301,7 +315,6 @@ def estimate_cost(
 	outputs = run_cosy(
 		script,
 		parameter_vector,
-		smooth_mode=smooth_mode,
 		output_mode="none",
 		cache=cache)
 
@@ -318,21 +331,19 @@ def estimate_cost(
 	return penalty
 
 
-def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth_mode: bool, output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
+def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output_mode: str, run_id: str = None, cache: Optional[dict[tuple, dict[str, Any]]] = None) -> dict[str, Any]:
 	""" get the observable values at these perturbations """
 	if parameter_vector is None:
 		parameter_vector = [cast(float, parameter.default) for parameter in script.parameters]
 	assert len(parameter_vector) == len(script.parameters)
 
-	run_key = tuple(parameter_vector) + (smooth_mode,)
+	run_key = tuple(parameter_vector)
 	if cache is None or run_key not in cache:
 		if run_id is None:
 			run_id = f"proc{multiprocessing.current_process().pid}"
 		graphics_code = {"none": 0, "GUI": 1, "file": 2}[output_mode]
 
 		modified_content = script.content
-		# turn fast mode on or off
-		modified_content = re.sub(r"smooth_mode := [A-Z]+;", f"smooth_mode := {repr(smooth_mode).upper()};", modified_content)
 		# turn off all graphics output
 		modified_content = re.sub(r"output_mode := [0-9];", f"output_mode := {graphics_code};", modified_content)
 		# set the output filename appropriately
@@ -382,7 +393,7 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], smooth
 			raise RuntimeError("COSY screwed up a number format")
 		if "WARNING," in output:
 			message = re.search(r"WARNING,\s*([^\n]*)$", output, re.MULTILINE).group(1)
-			print(f"COSY warning: {message}")
+			logging.warning(f"COSY warning: {message}")
 
 		# extract the resolution at each energy
 		lines = output.split("\n")
@@ -489,10 +500,11 @@ def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
 def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **kwargs) -> list[optimize.NonlinearConstraint]:
 	constraints = []
 	for constraint in script.constraints:
-		def constraint_function(x, name=constraint.name):
-			return run_cosy(script, x, smooth_mode=False, output_mode="none", cache=cache)[name]
-		constraints.append(optimize.NonlinearConstraint(
-			constraint_function, constraint.min, constraint.max, **kwargs))
+		if isfinite(constraint.min) or isfinite(constraint.max):
+			def constraint_function(x, name=constraint.name):
+				return run_cosy(script, x, output_mode="none", cache=cache)[name]
+			constraints.append(optimize.NonlinearConstraint(
+				constraint_function, constraint.min, constraint.max, **kwargs))
 	return constraints
 
 
