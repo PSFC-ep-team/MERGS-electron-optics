@@ -17,7 +17,7 @@ def draw_magnets(filename):
 	"""
 	parameters = run_cosy(
 		load_script(filename),
-		parameter_vector=None, smooth_mode=False,
+		parameter_vector=None,
 		output_mode="none")
 
 	paths = []
