@@ -11,7 +11,7 @@ import subprocess
 from shutil import copyfile
 from typing import Tuple, List, Any, Optional, Literal, Callable, Sequence, cast
 
-from numpy import sqrt, array_equal, array, empty_like, inf, log, ndarray, random, ones, isfinite
+from numpy import sqrt, array_equal, array, empty_like, inf, ndarray, random, ones, isfinite
 from numpy.typing import NDArray
 from numexpr import evaluate
 from scipy import optimize, stats
@@ -75,7 +75,7 @@ def optimize_electron_optics(
 			constraints=reformat_constraints(script, cache, jac="3-point"),
 			method='SLSQP',
 			options=dict(
-				ftol=1e-4,
+				ftol=1e-2,
 			)
 		)
 		solution = result.x
@@ -236,16 +236,17 @@ def optimize_electron_optics(
 	try:
 		cost = estimate_cost(
 			script, solution, cache,
-			constraint_handling="error", constraint_tolerance=1e-6)
+			constraint_handling="error", constraint_tolerance=1e-4)
 	except ValueError as e:
 		if method == "SLSQP" or method == "basin hopping":
-			logging.warning(f"Warning, {method}'s solution isn't quite valid ({e}).  I hope you're okay with that.")
+			logging.warning(f"Warning, {method}'s solution isn't valid ({e}).  I hope you're okay with that.")
 			cost = estimate_cost(
 				script, solution, cache,
 				constraint_handling="ignore")
 		else:
 			raise
 
+	logging.debug(f"{method} achieved resolution {resolution:.0f} keV and cost {cost:.0f} $ ({result.fun:.1f})")
 	return solution, resolution, cost
 
 
@@ -268,7 +269,7 @@ def objective_function(
 	"""
 	mean_resolution = estimate_resolution(script, parameter_vector, cache)
 	penalty = estimate_cost(script, parameter_vector, cache, constraint_handling, constraint_tolerance)
-	return frugality*penalty + 2*log(mean_resolution)
+	return penalty + mean_resolution**2/frugality
 
 
 def estimate_resolution(
@@ -609,7 +610,7 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .40, .04, 0.01,
+		.03, .40, .04, 500_000,
 		order=9, method="COBYQA",
 		save_name="mergs_optimal_electron_optics",
 	)

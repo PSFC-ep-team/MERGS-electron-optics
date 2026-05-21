@@ -35,6 +35,7 @@ logging.basicConfig(
 	level=logging.INFO, filename="out.log",
 	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s  %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
+plt.set_loglevel("warning")
 
 
 # avoid using super high orders when you're just trying to work out the aperture geometry
@@ -57,7 +58,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
 	aperture_distances = array([.30, .40, .50, .60, .80])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
-	frugalities = array([0.0001, 0.01, 1.0])
+	frugalities = array([20, 100, 200, 400, 700, 1000, 1300, 1600])**2
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	best_cost = inf
@@ -145,21 +146,21 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 						if resolution > target_resolution:
 							break
 
-	if best is None:
-		logging.warning("none of these met the resolution requirement.  it's probably not possible.")
-		raise RuntimeError("impossible requirements")
+		if best is None:
+			logging.warning("none of these met the resolution requirement.  it's probably not possible.")
+			raise RuntimeError("impossible requirements")
 
-	else:
-		foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality = best
-		logging.info(f"the best one was [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}], "
-		             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost:.2f} $")
+		else:
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality = best
+			logging.info(f"the best one was [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality:.1e}], "
+			             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost:.2f} $")
 
-		# calculate and save the optimal magnet parameters
-		magnet_parameters, _, _ = optimize_parameters(
-			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-			executor=None, final=True, save_name=f"{name}_electron_optics")
-		logging.info(f"has been saved to {name}_electron_optics!")
-		return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
+			# calculate and save the optimal magnet parameters
+			magnet_parameters, _, _ = optimize_parameters(
+				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
+				executor=executor, final=True, save_name=f"{name}_electron_optics")
+			logging.info(f"has been saved to {name}_electron_optics!")
+			return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
 
 def optimize_parameters(
@@ -191,7 +192,7 @@ def optimize_parameters(
 	# if it wasn't in there, optimize the magnet parameters
 	if parameters is None or cost is None or not perfect_match or save_name is not None:
 		logging.info(f"optimizing the magnet system {'from scratch' if parameters is None else 'based on a prior one'} "
-		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+		             f"for [{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality:.1e}, {order}]...")
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, method="COBYQA+SLSQP", order=order, save_name=save_name)
@@ -201,7 +202,7 @@ def optimize_parameters(
 				parameters, cost)
 	else:
 		logging.info(f"loading an optimized magnet system for ["
-		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality}, {order}]...")
+		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality:.1e}, {order}]...")
 
 	# check the permanent Monte Carlo resolution cache
 	try:
