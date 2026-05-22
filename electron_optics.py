@@ -60,7 +60,7 @@ def optimize_electron_optics(
 	if method == "Nelder-Mead":
 		# project into bounds
 		for i in range(len(initial_guess)):
-			initial_guess[i] = min(max(bounds[i][0], initial_guess), bounds[i][1])
+			initial_guess[i] = min(max(bounds[i][0], initial_guess[i]), bounds[i][1])
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraint_handling="error", cache=cache)
 
