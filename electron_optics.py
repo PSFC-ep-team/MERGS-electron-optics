@@ -23,7 +23,8 @@ os.makedirs("generated/", exist_ok=True)
 def optimize_electron_optics(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		frugality: float, order=6, method="COBYQA", save_name=None,
-		initial_guess: Sequence[float] = None, this_is_your_last_chance=False) -> tuple[list[float], float, float]:
+		initial_guess: Sequence[float] = None, constraint_tolerance=1e-4,
+		this_is_your_last_chance=False) -> tuple[Sequence[float], float, float]:
 	"""
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
@@ -35,18 +36,27 @@ def optimize_electron_optics(
 	               or a plus-separated list of those
 	:param save_name: a filename for the final solution
 	:param initial_guess: the parameter values at which to start the search
+	:param constraint_tolerance: how much the constraints of the final answer might be violated before we raise an error
+	                             (note: turning this down just raises more errors; it doesn't cause the returned answer
+	                             to move more in-bounds; there is no such option)
 	:param this_is_your_last_chance: whether to forbid recursion
 	:return: the optimal magnet parameters, RMS resolution (keV), and cost (emerald broams)
 	"""
 	if "+" in method:
 		methods = method.split("+")
-		for method in methods[:-1]:
-			initial_guess, _, _ = optimize_electron_optics(
-				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-				method, save_name, initial_guess)
-		return optimize_electron_optics(
-			foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-			methods[-1], save_name, initial_guess)
+		guess = initial_guess
+		resolution, cost = None, None
+		for method in methods:
+			try:
+				guess, resolution, cost = optimize_electron_optics(
+					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+					method, save_name, guess)
+			except RuntimeError as e:
+				logging.warning(f"skipping {method} because {e}")
+		if guess is not None and resolution is not None and cost is not None:
+			return guess, resolution, cost
+		else:
+			raise RuntimeError("none of the algorithms worked.  this optimization might be impossible.")
 
 	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
 
@@ -75,7 +85,7 @@ def optimize_electron_optics(
 			constraints=reformat_constraints(script, cache, jac="3-point"),
 			method='SLSQP',
 			options=dict(
-				ftol=1e-2,
+				ftol=1e-4,
 			)
 		)
 		solution = result.x
@@ -183,15 +193,7 @@ def optimize_electron_optics(
 		# if the gradient-based methods don't work
 		if method == "SLSQP" or method == "basin hopping":
 			if "incompatible constraints" in result.message:
-				logging.warning(f'The parameter optimization failed ("{result.message}").  Falling back on Nelder-Mead.')
-				# fall back on Nelder-Mead as it's the most robust
-				try:
-					return optimize_electron_optics(
-						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-						method="Nelder-Mead", save_name=save_name, initial_guess=initial_guess)
-				# however, be aware that we're screwed if the initial gess isn't feasible
-				except ValueError as e:
-					raise RuntimeError(f"I tried to fall back on Nelder–Mead but we can't because the initial guess is infeasible ({e}).  this optimization might be impossible.")
+				raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 			else:
 				logging.warning(f'The parameter optimization failed but maybe it\'s fine? ("{result.message}")')
 		# if COBYLA or COBYQA fails, it probably means they failed to find a feasible point
@@ -203,19 +205,20 @@ def optimize_electron_optics(
 					better_start_point, _, _ = optimize_electron_optics(
 						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
 						method="SLSQP", save_name=save_name, initial_guess=initial_guess,
+						constraint_tolerance=inf,
 					)
 				# but it can be fragile, and of course Nelder-Mead won't work here, so be prepared for failure
 				except RuntimeError as e:
-					raise RuntimeError(f"couldn't find a feasible point.  after SLSQP failed, {e}")
+					raise RuntimeError(f"SLSQP failed to find us a feasibly start point.  {e}")
 				else:
-					logging.info(f"SLSQP seems to have worked.  let's try that again.")
+					# that seems to have worked.  let's try that again.
 					return optimize_electron_optics(
 						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
 						method=method, save_name=save_name, initial_guess=better_start_point,
 						this_is_your_last_chance=True,
 					)
 			else:
-				raise RuntimeError(f"couldn't find a feasible point with fringe fields on (\"{result.message}\").  this optimization might be impossible.")
+				logging.warning(f"{method} is still failing even with SLSQP's start point (\"{result.message}\").  maybe whatever it has is fine?")
 		else:
 			raise RuntimeError(f'The parameter optimization failed ("{result.message}").')
 
@@ -236,15 +239,10 @@ def optimize_electron_optics(
 	try:
 		cost = estimate_cost(
 			script, solution, cache,
-			constraint_handling="error", constraint_tolerance=1e-4)
+			constraint_handling="error" if isfinite(constraint_tolerance) else "ignore",
+			constraint_tolerance=constraint_tolerance)
 	except ValueError as e:
-		if method == "SLSQP" or method == "basin hopping":
-			logging.warning(f"Warning, {method}'s solution isn't valid ({e}).  I hope you're okay with that.")
-			cost = estimate_cost(
-				script, solution, cache,
-				constraint_handling="ignore")
-		else:
-			raise
+		raise RuntimeError(f"{method} is cheating; this solution isn't valid ({e}).  not sure what to do about that.")
 
 	logging.debug(f"{method} achieved resolution {resolution:.0f} keV and cost {cost:.0f} $ ({result.fun:.1f})")
 	return solution, resolution, cost

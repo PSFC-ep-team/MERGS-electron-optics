@@ -32,7 +32,7 @@ plt.rcParams['lines.linewidth'] = 1.5
 
 # configure the logger
 logging.basicConfig(
-	level=logging.INFO, filename="out.log",
+	level=logging.DEBUG, filename="out.log",
 	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s  %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
 plt.set_loglevel("warning")
@@ -58,7 +58,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
 	aperture_distances = array([.30, .40, .50, .60, .80])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
-	frugalities = array([20, 100, 200, 400, 700, 1000, 1300, 1600])**2
+	frugalities = array([20, 100, 200, 400, 700, 1000, 1400, 2000])**2
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	best_cost = inf
@@ -87,7 +87,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 							# sometimes the constraints just can't be met
 							if "this optimization might be impossible" in str(e):
 								logging.warning(e)
-								break  # skip the higher frugalities since it _probably_ won't work there if it didn't work here
+								continue  # try a different frugality; sometimes that helps for some reason
 							# if it's something else, then I'm scared and confused and we should probably stop.
 							else:
 								raise
