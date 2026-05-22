@@ -5,13 +5,15 @@ import logging
 import multiprocessing
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
-from typing import Optional
+from typing import Optional, Sequence
 
+import multiprocessing_logging
 from MPR_Tools import MPRSpectrometer, ConversionFoil, Hodoscope, PerformanceAnalyzer
 from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian
+from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian, \
+	empty
 
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
@@ -33,8 +35,9 @@ plt.rcParams['lines.linewidth'] = 1.5
 # configure the logger
 logging.basicConfig(
 	level=logging.DEBUG, filename="out.log",
-	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(levelname)4s  %(message)s")
+	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(process)05d %(levelname)-5.5s %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
+multiprocessing_logging.install_mp_handler()
 plt.set_loglevel("warning")
 
 
@@ -42,6 +45,14 @@ plt.set_loglevel("warning")
 SCAN_ORDER = 5
 # go up to 9th order in the final scan since it's the highest order supported by MPR_Tools
 FINAL_ORDER = 9
+
+
+file_lock = multiprocessing.Lock()
+
+def initialize_process(new_lock):
+	""" this janky function is how you do file locks in multiprocessing """
+	global file_lock
+	file_lock = new_lock
 
 
 def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
@@ -59,92 +70,62 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	aperture_distances = array([.30, .40, .50, .60, .80])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
 	frugalities = array([20, 100, 200, 400, 700, 1000, 1400, 2000])**2
-	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), 5000)
+	task_grid = empty((foil_diameters.size, aperture_distances.size, aperture_diameters.size), dtype=object)
+	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	best_cost = inf
 	best: Optional[tuple[float, float, float, float, float]] = None
 
-	with ProcessPoolExecutor(max_workers=8) as executor:
+	with ProcessPoolExecutor(max_workers=8, initializer=initialize_process, initargs=(file_lock,)) as executor:
 		for i, foil_diameter in enumerate(foil_diameters):
 			for j, aperture_distance in enumerate(aperture_distances):
 				for k, aperture_diameter in enumerate(aperture_diameters):
-					for frugality in frugalities:
+					# scan frugality to calculate the other parameters
+					task_grid[i, j, k] = executor.submit(
+						optimize_mesoparameters,
+						foil_diameter, aperture_distance, aperture_diameter,
+						frugalities, target_resolution, target_efficiency,
+					)
 
-						# calculate the foil thickness
-						foil_thickness = optimize_foil_thickness(
-							foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=executor)
-						foil_resolution = calculate_foil_broadening(foil_thickness)
-						if foil_resolution > target_resolution:
-							logging.info(f"skipping thru this geometry as the foil broadening is already {foil_resolution:.0f} keV")
-							break
+		# as the optimization tasks finish...
+		for i, foil_diameter in enumerate(foil_diameters):
+			for j, aperture_distance in enumerate(aperture_distances):
+				for k, aperture_diameter in enumerate(aperture_diameters):
+					# extract the results
+					foil_thickness, local_best_resolution, local_best_cost, local_best_frugality = task_grid[i, j, k].result()
+					resolution_grid[i, j, k] = local_best_resolution
+					cost_grid[i, j, k] = local_best_cost
 
-						# run the inner optimization scan
-						try:
-							_, resolution, cost = optimize_parameters(
-								foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-								executor=executor, final=False)
-						except RuntimeError as e:
-							# sometimes the constraints just can't be met
-							if "this optimization might be impossible" in str(e):
-								logging.warning(e)
-								continue  # try a different frugality; sometimes that helps for some reason
-							# if it's something else, then I'm scared and confused and we should probably stop.
-							else:
-								raise
-						except ValueError as e:
-							# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
-							if str(e) == "Some of these rays don't hit the curved detector.":
-								logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
-								continue  # just avoid that geometry, I gess, since the map is probably not even converged.  try a different frugality.
-							# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
-							elif str(e) == "Failed to generate electron":
-								logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
-								break  # go ahead and skip this aperture geometry, but also print in case it's happening a lot
-							# if it's something else, then I'm scared and confused and we should probably stop.
-							else:
-								raise
+					# keep track of the best ones you see
+					if local_best_resolution <= target_resolution and local_best_cost < best_cost:
+						best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, local_best_frugality)
+						best_cost = local_best_cost
 
-						# save the results
-						if resolution_grid[i, j, k] <= target_resolution:
-							this_is_better_than_whats_in_the_grid = resolution <= target_resolution and cost < cost_grid[i, j, k]
+					# make a plot so the user can see our progress
+					if any(isfinite(cost_grid[i])):
+						vmin = nanmin(cost_grid[i])
+						if any(resolution_grid[i] <= target_resolution):
+							vmed = nanmedian(cost_grid[i][resolution_grid[i] <= target_resolution])
 						else:
-							this_is_better_than_whats_in_the_grid = resolution < resolution_grid[i, j, k]
-						if this_is_better_than_whats_in_the_grid:
-							cost_grid[i, j, k] = cost
-						resolution_grid[i, j, k] = min(resolution, resolution_grid[i, j, k])
-						if resolution <= target_resolution and cost < best_cost:
-							best = (foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality)
-							best_cost = cost
-
-						# make a plot so the user can see our progress
-						if any(isfinite(cost_grid[i])):
-							vmin = nanmin(cost_grid[i])
-							if any(resolution_grid[i] <= target_resolution):
-								vmed = nanmedian(cost_grid[i][resolution_grid[i] <= target_resolution])
-							else:
-								vmed = nanmedian(cost_grid[i])
-							vmax = 2*vmed - vmin
-							fig = plt.figure(figsize=(5.5, 3), facecolor="none")
-							ax = fig.add_subplot()
-							mesh = ax.contourf(
-								aperture_distances*100, aperture_diameters*100, cost_grid[i].T,
-								cmap="viridis_r", levels=MaxNLocator(10).tick_values(vmin, vmax),
-								extend="max")
-							mesh.set_edgecolor("face")
-							if any(resolution_grid <= target_resolution):
-								ax.contourf(
-									aperture_distances*100, aperture_diameters*100, resolution_grid[i].T,
-									levels=[0, target_resolution, inf], colors=["none", "k"])
-							ax.set_xlabel("Aperture distance (cm)")
-							ax.set_ylabel("Aperture diameter (cm)")
-							plt.colorbar(mesh, extend="max").set_label("Cost")
-							fig.tight_layout()
-							fig.savefig(f"generated/hyperparameter_optimization_{name}_{foil_diameter*100}cm.pdf")
-							plt.close(fig)
-
-						# if the resolution requirement was not met here, you can skip the higher frugalities
-						if resolution > target_resolution:
-							break
+							vmed = nanmedian(cost_grid[i])
+						vmax = 2*vmed - vmin
+						fig = plt.figure(figsize=(5.5, 3), facecolor="none")
+						ax = fig.add_subplot()
+						mesh = ax.contourf(
+							aperture_distances*100, aperture_diameters*100, cost_grid[i].T,
+							cmap="viridis_r", levels=MaxNLocator(10).tick_values(vmin, vmax),
+							extend="max")
+						mesh.set_edgecolor("face")
+						if any(resolution_grid <= target_resolution):
+							ax.contourf(
+								aperture_distances*100, aperture_diameters*100, resolution_grid[i].T,
+								levels=[0, target_resolution, inf], colors=["none", "k"])
+						ax.set_xlabel("Aperture distance (cm)")
+						ax.set_ylabel("Aperture diameter (cm)")
+						plt.colorbar(mesh, extend="max").set_label("Cost")
+						fig.tight_layout()
+						fig.savefig(f"generated/hyperparameter_optimization_{name}_{foil_diameter*100}cm.pdf")
+						plt.close(fig)
 
 		if best is None:
 			logging.warning("none of these met the resolution requirement.  it's probably not possible.")
@@ -158,14 +139,89 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			# calculate and save the optimal magnet parameters
 			magnet_parameters, _, _ = optimize_parameters(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
-				executor=executor, final=True, save_name=f"{name}_electron_optics")
+				final=True, save_name=f"{name}_electron_optics")
 			logging.info(f"has been saved to {name}_electron_optics!")
 			return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
 
+def optimize_mesoparameters(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		frugalities: Sequence[float], target_resolution: float, target_efficiency: float) -> tuple[float, float, float, float]:
+	"""
+	for a given foil/aperture dimensions, find the foil thickness, frugality, and magnet system that achieves
+	the given resolution and efficiency for the lowest cost
+	:param foil_diameter: the foil diameter in m
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture diameter in m
+	:param frugalities: the frugality values to scan thru
+	:param target_resolution: the desired resolution at 16.75 MeV, in keV
+	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
+	:return: the optimal foil thickness (μm), the best resolution obtained (keV),
+	         the lowest cost that met the resolution requirement (emerald broams),
+	         and the frugality corresponding to the best cost
+	"""
+	best_resolution = 5000
+	best_cost = nan
+	best_frugality = nan
+
+	# calculate the foil thickness
+	foil_thickness = optimize_foil_thickness(
+		foil_diameter, aperture_distance, aperture_diameter, target_efficiency)
+	foil_resolution = calculate_foil_broadening(foil_thickness)
+	if foil_resolution > target_resolution:
+		logging.info(f"skipping thru [{foil_diameter}, {aperture_distance}, {aperture_diameter}] as the foil broadening is already {foil_resolution:.0f} keV")
+		return foil_thickness, best_resolution, best_cost, best_frugality
+
+	logging.info(f"beginning frugality scan for [{foil_diameter}, {aperture_distance}, {aperture_diameter}]...")
+
+	for frugality in frugalities:
+
+		# run the inner optimization scan
+		try:
+			_, resolution, cost = optimize_parameters(
+				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, final=False)
+		except RuntimeError as e:
+			# sometimes the constraints just can't be met
+			if "this optimization might be impossible" in str(e):
+				logging.warning(e)
+				continue  # try a different frugality; sometimes that helps for some reason
+			# if it's something else, then I'm scared and confused and we should probably stop.
+			else:
+				raise
+		except ValueError as e:
+			# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
+			if str(e) == "Some of these rays don't hit the curved detector.":
+				logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
+				continue  # just avoid that geometry, I gess, since the map is probably not even converged.  try a different frugality.
+			# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
+			elif str(e) == "Failed to generate electron":
+				logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
+				break  # go ahead and skip this aperture geometry, but also print in case it's happening a lot
+			# if it's something else, then I'm scared and confused and we should probably stop.
+			else:
+				raise
+
+		# save the results
+		if best_resolution <= target_resolution:
+			this_is_better_than_the_current_best = resolution <= target_resolution and cost < best_cost
+		else:
+			this_is_better_than_the_current_best = resolution < best_resolution
+		if this_is_better_than_the_current_best:
+			best_cost = cost
+			best_frugality = frugality
+		best_resolution = min(resolution, best_resolution)
+
+		# if the resolution requirement was not met here, you can skip the higher frugalities
+		if resolution > target_resolution:
+			break
+
+	logging.info(f"done with [{foil_diameter}, {aperture_distance}, {aperture_diameter}]!")
+	return foil_thickness, best_resolution, best_cost, best_frugality
+
+
 def optimize_parameters(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float,
-		frugality: float, executor: Optional[Executor], final=True, save_name: str = None) -> tuple[list[float], float, float]:
+		frugality: float, final=True, save_name: str = None) -> tuple[Sequence[float], float, float]:
 	"""
 	for a given foil/aperture dimensions and frugality, find the optimal magnet system that achieves
 	the given efficiency with the best resolution
@@ -174,7 +230,6 @@ def optimize_parameters(
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
 	:param frugality: how much to wey cost when evaluating performance
-	:param executor: the process pool to use for the multiprocessed bits
 	:param final: whether to make this calculation accurate (otherwise we'll just do something quick and easy)
 	:param save_name: a filename at which to save the optimal magnet parameters
 	:return: the optimal magnet parameters, resolution at 16.75 MeV (keV), and cost (emerald broams)
@@ -213,27 +268,26 @@ def optimize_parameters(
 		total_resolution = calculate_resolution(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 			"mergs_electron_optics", parameters,
-			order=order, executor=executor)
+			order=order, executor=None)
 		append_to_permanent_resolution_cache(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order,
 			total_resolution)
 
 	# log, save, and return
-	logging.info(f" -> {total_resolution:.0f} keV, {cost:.2f} $")
+	logging.info(f"[{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality:.1e}, {order}] "
+	             f"-> {total_resolution:.0f} keV, {cost:.2f} $")
 	return parameters, total_resolution, cost
 
 
 def optimize_foil_thickness(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		target_efficiency: float,
-		executor: Optional[Executor]) -> float:
+		target_efficiency: float) -> float:
 	"""
 	for a given foil radius and material, calculate the thickness that achieves the given efficiency
 	:param foil_diameter: the foil diameter in m
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
 	:param target_efficiency: the desired number of Compton counts per photon born in the plasma
-	:param executor: the process pool to use for the multiprocessed bits
 	:return: the optimal foil thickness in μm
 	"""
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
@@ -245,7 +299,7 @@ def optimize_foil_thickness(
 	except (KeyError, FileNotFoundError) as _:
 		# if it wasn't in there, use a quick MC to calculate the geometric efficiency
 		_, geometric_efficiency, _ = foil.calculate_efficiency(
-			16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
+			16.75, num_samples=500_000, executor=None, max_workers=1)
 		append_to_permanent_efficiency_cache(
 			foil_diameter, aperture_distance, aperture_diameter,
 			geometric_efficiency)
@@ -266,7 +320,7 @@ def optimize_foil_thickness(
 def calculate_resolution(
 		foil_diameter: float, foil_thickness: float,
 		aperture_distance: float, aperture_diameter: float,
-		magnet_system_filename: str, parameters: Optional[list[float]],
+		magnet_system_filename: str, parameters: Optional[Sequence[float]],
 		executor: Optional[Executor], order: int = None) -> float:
 	"""
 	evaluate a complete design to determine its total energy resolution
@@ -352,14 +406,15 @@ def load_from_permanent_efficiency_cache(
 def append_to_permanent_efficiency_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
 		geometric_efficiency: float):
-	with open("generated/efficiency_cache.txt", mode="a") as file:
-		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}: "
-		           f"{geometric_efficiency}\n")
+	with file_lock:
+		with open("generated/efficiency_cache.txt", mode="a") as file:
+			file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}: "
+			           f"{geometric_efficiency}\n")
 
 
 def find_nearest_in_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
-) -> tuple[list[float], float, bool]:
+) -> tuple[Sequence[float], float, bool]:
 	best_distance = inf
 	best_outputs = None
 	try:
@@ -390,10 +445,11 @@ def find_nearest_in_permanent_geometry_cache(
 
 def append_to_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
-		parameters: list[float], cost: float):
-	with open("generated/magnet_optimization_cache.txt", mode="a") as file:
-		file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
-		           f"{', '.join(str(x) for x in parameters)}, {cost}\n")
+		parameters: Sequence[float], cost: float):
+	with file_lock:
+		with open("generated/magnet_optimization_cache.txt", mode="a") as file:
+			file.write(f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
+			           f"{', '.join(str(x) for x in parameters)}, {cost}\n")
 
 
 def load_from_permanent_resolution_cache(
@@ -414,9 +470,10 @@ def load_from_permanent_resolution_cache(
 def append_to_permanent_resolution_cache(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		resolution: float):
-	with open("generated/resolution_cache.txt", mode="a") as file:
-		file.write(f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
-		           f"{resolution}\n")
+	with file_lock:
+		with open("generated/resolution_cache.txt", mode="a") as file:
+			file.write(f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}: "
+			           f"{resolution}\n")
 
 
 if __name__ == "__main__":
