@@ -166,7 +166,7 @@ def optimize_mesoparameters(
 
 	# calculate the foil thickness
 	foil_thickness = optimize_foil_thickness(
-		foil_diameter, aperture_distance, aperture_diameter, target_efficiency)
+		foil_diameter, aperture_distance, aperture_diameter, target_efficiency, executor=None)
 	foil_resolution = calculate_foil_broadening(foil_thickness)
 	if foil_resolution > target_resolution:
 		logging.info(f"skipping thru [{foil_diameter}, {aperture_distance}, {aperture_diameter}] as the foil broadening is already {foil_resolution:.0f} keV")
@@ -281,13 +281,14 @@ def optimize_parameters(
 
 def optimize_foil_thickness(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
-		target_efficiency: float) -> float:
+		target_efficiency: float, executor: Optional[Executor]) -> float:
 	"""
 	for a given foil radius and material, calculate the thickness that achieves the given efficiency
 	:param foil_diameter: the foil diameter in m
 	:param aperture_distance: the distance from the foil to the aperture in m
 	:param aperture_diameter: the aperture diameter in m
 	:param target_efficiency: the desired number of Compton counts per photon born in the plasma
+	:param executor: the process pool to use for the multiprocessed bits
 	:return: the optimal foil thickness in μm
 	"""
 	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
@@ -299,7 +300,7 @@ def optimize_foil_thickness(
 	except (KeyError, FileNotFoundError) as _:
 		# if it wasn't in there, use a quick MC to calculate the geometric efficiency
 		_, geometric_efficiency, _ = foil.calculate_efficiency(
-			16.75, num_samples=500_000, executor=None, max_workers=1)
+			16.75, num_samples=500_000, executor=executor, max_workers=8 if executor else 1)
 		append_to_permanent_efficiency_cache(
 			foil_diameter, aperture_distance, aperture_diameter,
 			geometric_efficiency)

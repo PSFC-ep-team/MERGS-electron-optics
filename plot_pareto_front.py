@@ -218,7 +218,7 @@ def find_suitable_configuration(
 
 	magnet_system_info = run_cosy(
 		load_script(magnet_system_filename),
-		parameter_vector=None, smooth_mode=False, output_mode="none")
+		parameter_vector=None, output_mode="none")
 
 	map_filename = f"generated/proc{current_process().pid}_map.txt"
 	with open(map_filename, "w") as file:
