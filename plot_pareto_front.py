@@ -333,4 +333,7 @@ def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwa
 
 
 if __name__ == "__main__":
-	plot_pareto_fronts("generated/MERGS400_electron_optics", "generated/MERGS300_electron_optics", "generated/MERGS200_electron_optics")
+	plot_pareto_fronts(
+		"generated/MERGS500_electron_optics",
+		"generated/MERGS350_electron_optics",
+		"generated/MERGS250_electron_optics")

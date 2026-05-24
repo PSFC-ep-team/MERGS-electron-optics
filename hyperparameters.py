@@ -3,6 +3,7 @@ code for scanning hyperparameters to find the set of all good designs
 """
 import logging
 import multiprocessing
+import traceback
 from concurrent.futures import Executor
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Sequence
@@ -34,7 +35,7 @@ plt.rcParams['lines.linewidth'] = 1.5
 
 # configure the logger
 logging.basicConfig(
-	level=logging.DEBUG, filename="out.log",
+	level=logging.INFO, filename="out.log",
 	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(process)05d %(levelname)-5.5s %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
 multiprocessing_logging.install_mp_handler()
@@ -42,7 +43,7 @@ plt.set_loglevel("warning")
 
 
 # avoid using super high orders when you're just trying to work out the aperture geometry
-SCAN_ORDER = 5
+SCAN_ORDER = 9
 # go up to 9th order in the final scan since it's the highest order supported by MPR_Tools
 FINAL_ORDER = 9
 
@@ -62,12 +63,11 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 	:param name: the final filename at which to save the COSY file
 	:param target_resolution: the desired resolution at 16.75 MeV, in keV
 	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
-	:return: the optimal foil diameter, foil thickness, aperture distance, and aperture diameter
 	"""
 	logging.info("---")
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
 	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
-	aperture_distances = array([.30, .40, .50, .60, .80])
+	aperture_distances = array([.30, .40, .50, .60, .70, .80])
 	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
 	frugalities = array([20, 100, 200, 400, 700, 1000, 1400, 2000])**2
 	task_grid = empty((foil_diameters.size, aperture_distances.size, aperture_diameters.size), dtype=object)
@@ -92,7 +92,12 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			for j, aperture_distance in enumerate(aperture_distances):
 				for k, aperture_diameter in enumerate(aperture_diameters):
 					# extract the results
-					foil_thickness, local_best_resolution, local_best_cost, local_best_frugality = task_grid[i, j, k].result()
+					try:
+						foil_thickness, local_best_resolution, local_best_cost, local_best_frugality = task_grid[i, j, k].result()
+					except Exception as e:
+						traceback.print_exc()
+						logging.error(str(e))
+						continue
 					resolution_grid[i, j, k] = local_best_resolution
 					cost_grid[i, j, k] = local_best_cost
 
@@ -128,8 +133,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 						plt.close(fig)
 
 		if best is None:
-			logging.warning("none of these met the resolution requirement.  it's probably not possible.")
-			raise RuntimeError("impossible requirements")
+			logging.error("none of these met the resolution requirement.  it's probably not possible.")
 
 		else:
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality = best
@@ -137,11 +141,10 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			             f"which had a foil thickness of {foil_thickness:.1f} μm and cost {best_cost:.2f} $")
 
 			# calculate and save the optimal magnet parameters
-			magnet_parameters, _, _ = optimize_parameters(
+			optimize_parameters(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 				final=True, save_name=f"{name}_electron_optics")
 			logging.info(f"has been saved to {name}_electron_optics!")
-			return foil_diameter, foil_thickness, aperture_distance, aperture_diameter, magnet_parameters
 
 
 def optimize_mesoparameters(
@@ -251,10 +254,14 @@ def optimize_parameters(
 		parameters, optical_resolution, cost = optimize_electron_optics(
 			foil_diameter, aperture_distance, aperture_diameter, frugality,
 			initial_guess=parameters, method="COBYQA+SLSQP", order=order, save_name=save_name)
-		if not perfect_match:
-			append_to_permanent_geometry_cache(
-				foil_diameter, aperture_distance, aperture_diameter, frugality, order,
-				parameters, cost)
+		if perfect_match:
+			remove_from_permanent_geometry_cache(
+				foil_diameter, aperture_distance, aperture_diameter, frugality, order)
+		append_to_permanent_geometry_cache(
+			foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+			parameters, cost)
+		remove_from_permanent_resolution_cache(
+			foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality, order)
 	else:
 		logging.info(f"loading an optimized magnet system for ["
 		             f"{foil_diameter}, {aperture_distance}, {aperture_diameter}; {frugality:.1e}, {order}]...")
@@ -374,9 +381,15 @@ def calculate_resolution(
 		),
 	)
 
-	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-			incident_energy=16.75, num_recoil_particles=100_000, map_order=order,
-			executor=executor, max_workers=8 if executor else 1)
+	try:
+		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+				incident_energy=16.75, num_recoil_particles=100_000, map_order=order,
+				executor=executor, max_workers=8 if executor else 1)
+	except Exception as e:
+		if not "curved detector" in str(e):
+			print(e)
+			traceback.print_exception(e)
+		raise
 
 	return min(5000, abs(resolution))  # don't report resolutions above 5 MeV because it gets hard to define then
 
@@ -444,6 +457,20 @@ def find_nearest_in_permanent_geometry_cache(
 		return parameters, cost, best_distance == 0
 
 
+def remove_from_permanent_geometry_cache(
+		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int):
+	target = f"{foil_diameter}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}:"
+	try:
+		with open("generated/magnet_optimization_cache.txt", mode="r") as file:
+			lines = file.readlines()
+		lines = filter(lambda line: not line.startswith(target), lines)
+		with file_lock:
+			with open("generated/magnet_optimization_cache.txt", mode="w") as file:
+				file.writelines(lines)
+	except FileNotFoundError:
+		raise FileNotFoundError("geometry cache is absent")
+
+
 def append_to_permanent_geometry_cache(
 		foil_diameter: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		parameters: Sequence[float], cost: float):
@@ -468,6 +495,20 @@ def load_from_permanent_resolution_cache(
 	raise KeyError("desired simulation not present in cache")
 
 
+def remove_from_permanent_resolution_cache(
+		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int):
+	target = f"{foil_diameter}, {foil_thickness}, {aperture_distance}, {aperture_diameter}, {frugality}, {order}:"
+	try:
+		with open("generated/resolution_cache.txt", mode="r") as file:
+			lines = file.readlines()
+		lines = filter(lambda line: not line.startswith(target), lines)
+		with file_lock:
+			with open("generated/resolution_cache.txt", mode="w") as file:
+				file.writelines(lines)
+	except FileNotFoundError:
+		raise FileNotFoundError("MC cache is absent")
+
+
 def append_to_permanent_resolution_cache(
 		foil_diameter: float, foil_thickness: float, aperture_distance: float, aperture_diameter: float, frugality: float, order: int,
 		resolution: float):
@@ -479,6 +520,8 @@ def append_to_permanent_resolution_cache(
 
 if __name__ == "__main__":
 	optimize_hyperparameters("MERGS500", 500, 1e-13)
-	# optimize_hyperparameters("MERGS400", 400, 1e-13)
-	# optimize_hyperparameters("MERGS300", 300, 1e-13)
-	# optimize_hyperparameters("MERGS200", 200, 1e-13)
+	optimize_hyperparameters("MERGS400", 400, 1e-13)
+	optimize_hyperparameters("MERGS350", 350, 1e-13)
+	optimize_hyperparameters("MERGS300", 300, 1e-13)
+	optimize_hyperparameters("MERGS250", 250, 1e-13)
+	optimize_hyperparameters("MERGS300X", 300, 2e-13)
