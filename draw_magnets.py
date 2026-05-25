@@ -216,17 +216,39 @@ def draw_bending_magnet(
 	]
 	graphic.append(Path(klass="magnet", commands=block, zorder=1))
 
-	for radius, klass in [(max_bend_radius, "guide"), (min_bend_radius, "guide"), (central_bend_radius, "central-ray")]:
+	for radius in [max_bend_radius, min_bend_radius]:
 		arc = [
-			("M", [x_center + radius*sin(θ), y_center - radius*cos(θ)]),
+			("M", [
+				x_center + radius*sin(θ) - 0.1*cos(θ),
+				y_center - radius*cos(θ) - 0.1*sin(θ),
+			]),
+			("L", [
+				x_center + radius*sin(θ),
+				y_center - radius*cos(θ),
+			]),
 			("A", [
 				radius, radius,
 				0, (1 if bend_angle > pi else 0), 1,
 				x_center + radius*sin(θ + bend_angle),
 				y_center - radius*cos(θ + bend_angle),
 			]),
+			("L", [
+				x_center + radius*sin(θ + bend_angle) + 0.1*cos(θ + bend_angle),
+				y_center - radius*cos(θ + bend_angle) + 0.1*sin(θ + bend_angle),
+			]),
 		]
-		graphic.append(Path(klass=klass, commands=arc, zorder=2))
+		graphic.append(Path(klass="guide", commands=arc, zorder=2))
+
+	arc = [
+		("M", [x, y]),
+		("A", [
+			central_bend_radius, central_bend_radius,
+			0, (1 if bend_angle > pi else 0), 1,
+			x_center + central_bend_radius*sin(θ + bend_angle),
+			y_center - central_bend_radius*cos(θ + bend_angle),
+			]),
+	]
+	graphic.append(Path(klass="central-ray", commands=arc, zorder=2))
 
 	x, y = arc[-1][1][-2:]
 	θ = θ + bend_angle
@@ -286,9 +308,9 @@ def write_SVG(filename: str, paths: List[Path]) -> None:
 		'<?xml version="1.0" encoding="UTF-8"?>\n'
 		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 3.00 3.00" width="30cm" height="30cm">\n'
 		'  <style>\n'
-		'    .magnet { fill: #8b959e; stroke: none; }\n'
-		'    .plane { fill: none; stroke: #8b959e; stroke-width: .01; stroke-linecap: butt; }\n'
-		'    .central-ray { fill: none; stroke: #750014; stroke-width: .01; stroke-linecap: round; }\n'
+		'    .magnet { fill: #949494; stroke: none; }\n'
+		'    .plane { fill: none; stroke: #949494; stroke-width: .01; stroke-linecap: butt; }\n'
+		'    .central-ray { fill: none; stroke: #016317; stroke-width: .01; stroke-linecap: round; }\n'
 		'    .guide { fill: none; stroke: #ffffff; stroke-width: .005; stroke-linecap: square; stroke-dasharray: .005 .015 }\n'
 		'  </style>\n'
 	)
