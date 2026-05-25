@@ -248,20 +248,14 @@ def find_suitable_configuration(
 	solution = optimize.minimize(
 		objective,
 		[max_foil_diameter, max_aperture_diameter],
-		method="Nelder-Mead",
+		method="COBYQA",
 		bounds=[
 			(.01, max_foil_diameter),
 			(.01, max_aperture_diameter),
 		],
 		options=dict(
-			initial_simplex=[
-				[max_foil_diameter, max_aperture_diameter],
-				[max_foil_diameter*0.6, max_aperture_diameter*0.8],
-				[max_foil_diameter*0.8, max_aperture_diameter*0.6],
-			],
-			xatol=0.001,  # it doesn't need to be more precise than the nearest millimeter
-			fatol=inf,
-			disp=True,
+			initial_tr_radius=0.01,
+			final_tr_radius=0.001,
 		)
 	)
 	print(solution)
