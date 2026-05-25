@@ -59,6 +59,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 			logging.info(f"re-loaded a previously calculated pareto front for {name}")
 
 		else:
+			logging.info(f"calculating the pareto front for {design}...")
 			if type(design) is str:
 				resolutions, efficiencies, hyperparameters = find_pareto_front_of_magnet_design(design)
 			elif len(design) == 3:
@@ -69,6 +70,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 				resolutions, efficiencies, hyperparameters = find_pareto_front_of_collimator(foil_diameter)
 			else:
 				raise ValueError(f"wth does {design} mean?")
+			logging.info(f"done with {design}!")
 
 			savetxt(
 				f"generated/{name}_pareto_front.txt",

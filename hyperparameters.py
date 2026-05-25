@@ -35,7 +35,7 @@ plt.rcParams['lines.linewidth'] = 1.5
 
 # configure the logger
 logging.basicConfig(
-	level=logging.INFO, filename="out.log",
+	level=logging.INFO, filename="out.log", encoding="utf-8",
 	datefmt="%m-%d %H:%M:%S", format="%(asctime)s %(process)05d %(levelname)-5.5s %(message)s")
 logging.getLogger().addHandler(logging.StreamHandler())
 multiprocessing_logging.install_mp_handler()
@@ -406,15 +406,9 @@ def calculate_resolution_of_map(
 		),
 	)
 
-	try:
-		_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-				incident_energy=16.75, num_recoil_particles=100_000, map_order=order,
-				executor=executor, max_workers=8 if executor else 1)
-	except Exception as e:
-		if not "curved detector" in str(e):
-			print(e)
-			traceback.print_exception(e)
-		raise
+	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
+			incident_energy=16.75, num_recoil_particles=num_recoil_particles, map_order=order,
+			executor=executor, max_workers=8 if executor else 1)
 
 	return min(5000, abs(resolution))  # don't report resolutions above 5 MeV because it gets hard to define then
 
