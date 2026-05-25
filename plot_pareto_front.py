@@ -3,24 +3,19 @@ code for finding the full Pareto curve of a design with fixed magnet geometry
 """
 import logging
 import os.path
-from concurrent.futures import Future, Executor
+from concurrent.futures import Future
 from concurrent.futures.process import ProcessPoolExecutor
 from multiprocessing import current_process
-from typing import Sequence, Callable, Optional
+from typing import Sequence, Callable
 
 import matplotlib.pyplot as plt
-from MPR_Tools.analysis.performance import PerformanceAnalyzer
-from MPR_Tools.core.conversion_foil import ConversionFoil
-from MPR_Tools.core.hodoscope import Hodoscope
-from MPR_Tools.core.spectrometer import MPRSpectrometer
 from matplotlib.ticker import MultipleLocator
-from numpy import inf, geomspace, stack, concatenate, array, loadtxt, savetxt, degrees, zeros
+from numpy import inf, geomspace, stack, concatenate, array, loadtxt, savetxt, degrees
 from numpy.ma.core import empty_like
 from scipy import optimize
 
 from electron_optics import run_cosy, load_script
-from hyperparameters import optimize_foil_thickness
-
+from hyperparameters import optimize_foil_thickness, calculate_resolution_of_map
 
 ORDER = 9
 
@@ -132,10 +127,11 @@ def find_pareto_front_of_aperture_design(foil_diameter: float, aperture_distance
 	with ProcessPoolExecutor(max_workers=9) as executor:
 		for i, efficiency in enumerate(efficiencies):
 			foil_thickness = optimize_foil_thickness(foil_diameter, aperture_distance, aperture_diameter, efficiency, executor)
-			resolutions[i] = calculate_resolution(
+			resolutions[i] = calculate_resolution_of_map(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-				map_filename=IDEAL_MAP_FILENAME, central_energy=10,
-				tilt_angle=0, arc_radius=inf, executor=executor)
+				map_filename=IDEAL_MAP_FILENAME, central_energy=10, order=1,
+				tilt_angle=0, arc_radius=inf, executor=executor,
+				num_recoil_particles=10_000)
 			hyperparameters.append((foil_diameter, foil_thickness, aperture_distance, aperture_diameter))
 	return resolutions, efficiencies, hyperparameters
 
@@ -163,10 +159,11 @@ def find_suitable_hyperparameters(
 		aperture_distance, aperture_diameter = hyperparameters
 		foil_thickness = optimize_foil_thickness(
 			foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
-		resolution = calculate_resolution(
+		resolution = calculate_resolution_of_map(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
-			map_filename=IDEAL_MAP_FILENAME, central_energy=10,
-			tilt_angle=0, arc_radius=inf, executor=None)
+			map_filename=IDEAL_MAP_FILENAME, central_energy=10, order=1,
+			tilt_angle=0, arc_radius=inf, executor=None,
+			num_recoil_particles=10_000)
 		logging.info(f"{efficiency:.3g}: [{foil_diameter:.4g}, {foil_thickness:.4g}, {aperture_distance:.4g}, {aperture_diameter:.4g}] -> {resolution:.2f}")
 		return resolution
 
@@ -234,14 +231,16 @@ def find_suitable_configuration(
 		foil_diameter, aperture_diameter = hyperparameters
 		foil_thickness = optimize_foil_thickness(
 			foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
-		resolution = calculate_resolution(
+		resolution = calculate_resolution_of_map(
 			foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
 			map_filename,
 			central_energy=central_energy,
+			order=ORDER,
 			tilt_angle=detector_tilt_angle,
 			arc_radius=detector_arc_radius,
-			executor=None)
-		logging.info(f"{efficiency:.3g}: [{foil_diameter:.4g}, {foil_thickness:.4g}, {aperture_distance:.4g}, {aperture_diameter:.4g}] -> {resolution:.2f}")
+			executor=None,
+			num_recoil_particles=10_000)
+		logging.info(f"{efficiency:.3g}: [{foil_diameter:.6g}, {foil_thickness:.1f}, {aperture_distance:.6g}, {aperture_diameter:.6g}] -> {resolution:.2f}")
 		return resolution
 
 	solution = optimize.minimize(
@@ -268,54 +267,16 @@ def find_suitable_configuration(
 	foil_diameter, aperture_diameter = solution.x
 	foil_thickness = optimize_foil_thickness(
 		foil_diameter, aperture_distance, aperture_diameter, efficiency, executor=None)
-	return solution.fun, (foil_diameter, foil_thickness, aperture_distance, aperture_diameter)
-
-
-def calculate_resolution(
-		foil_diameter: float, foil_thickness: float,
-		aperture_distance: float, aperture_diameter: float,
-		map_filename: str, central_energy: float, tilt_angle: float, arc_radius: float,
-		executor: Optional[Executor]) -> float:
-	"""
-	evaluate a complete design to determine its total energy resolution
-	:param foil_diameter: the foil diameter in m
-	:param foil_thickness: the foil thickness in μm
-	:param aperture_distance: the distance from the foil to the aperture in m
-	:param aperture_diameter: the aperture diameter in m
-	:param map_filename: name of a file containing the electron optics map coefficients
-	:param central_energy: the central energy in MeV to use with the map
-	:param tilt_angle: the detector tilt in degrees
-	:param arc_radius: the radius of curvature of the detector in cm
-	:param executor: the process pool to use for the multiprocessed bits
-	:return: resolution at 16.75 MeV (keV)
-	"""
-	# use MPR_Tools to calculate the resolution
-	monte_carlo = PerformanceAnalyzer(
-		MPRSpectrometer(
-			conversion_foil=ConversionFoil(
-				foil_radius=foil_diameter/2,
-				thickness=foil_thickness,
-				aperture_distance=aperture_distance,
-				aperture_radius=aperture_diameter/2,
-				foil_material="B",
-			),
-			transfer_map_path=map_filename,
-			reference_energy=central_energy, min_energy=6, max_energy=18,
-			hodoscope=Hodoscope(
-				tilt_angle=tilt_angle,
-				arc_radius=arc_radius,
-				channels=zeros((2, 2))
-			),
-			run_directory="generated/monte-carlo-dump/",
-		),
-	)
-
-	_, _, resolution, _ = monte_carlo.analyze_monoenergetic_performance(
-		incident_energy=16.75, num_recoil_particles=10_000, map_order=ORDER,
-		executor=executor, max_workers=8 if executor else 1)
-
-	return abs(resolution)
-
+	exact_resolution = calculate_resolution_of_map(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
+		map_filename,
+		central_energy=central_energy,
+		order=ORDER,
+		tilt_angle=detector_tilt_angle,
+		arc_radius=detector_arc_radius,
+		executor=None,
+		num_recoil_particles=100_000)
+	return exact_resolution, (foil_diameter, foil_thickness, aperture_distance, aperture_diameter)
 
 
 def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwargs):

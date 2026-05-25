@@ -298,7 +298,7 @@ def optimize_foil_thickness(
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: the optimal foil thickness in μm
 	"""
-	foil = ConversionFoil(foil_diameter/2, 1, aperture_distance, aperture_diameter/2, foil_material="B")
+	foil = ConversionFoil(100*foil_diameter/2, 1, 100*aperture_distance, 100*aperture_diameter/2, foil_material="B")
 
 	# check the permanent Monte Carlo efficiency cache
 	try:
@@ -329,7 +329,7 @@ def calculate_resolution(
 		foil_diameter: float, foil_thickness: float,
 		aperture_distance: float, aperture_diameter: float,
 		magnet_system_filename: str, parameters: Optional[Sequence[float]],
-		executor: Optional[Executor], order: int = None) -> float:
+		executor: Optional[Executor], order: int) -> float:
 	"""
 	evaluate a complete design to determine its total energy resolution
 	:param foil_diameter: the foil diameter in m
@@ -342,11 +342,6 @@ def calculate_resolution(
 	:param executor: the process pool to use for the multiprocessed bits
 	:return: resolution at 16.75 MeV (keV)
 	"""
-	# first make sure the foil is a reasonable thickness
-	foil_broadening = calculate_foil_broadening(foil_thickness)
-	if foil_broadening > 5000:  # if it's really really thick, skip this calculation as it might not work properly
-		return 5000
-
 	# use COSY to get the transfer map matrix and optimal detector shape
 	cosy_script = load_script(magnet_system_filename, foil_diameter, aperture_distance, aperture_diameter, order)
 	cosy_outputs = run_cosy(cosy_script, parameters, output_mode="none")
@@ -360,14 +355,44 @@ def calculate_resolution(
 	else:
 		arc_radius = -inf
 
+	return calculate_resolution_of_map(
+		foil_diameter, foil_thickness, aperture_distance, aperture_diameter,
+		map_filename, central_energy, tilt_angle, arc_radius, executor, order=order)
+
+
+def calculate_resolution_of_map(
+	foil_diameter: float, foil_thickness: float,
+	aperture_distance: float, aperture_diameter: float,
+	map_filename: str, central_energy: float, tilt_angle: float, arc_radius: float,
+	executor: Optional[Executor], order: int, num_recoil_particles=100_000) -> float:
+	"""
+	evaluate a spectrometer configuration to determine its total energy resolution
+	:param foil_diameter: the foil diameter in m
+	:param foil_thickness: the foil thickness in μm
+	:param aperture_distance: the distance from the foil to the aperture in m
+	:param aperture_diameter: the aperture diameter in m
+	:param map_filename: name of a file containing the electron optics map coefficients
+	:param central_energy: the central energy in MeV to use with the map
+	:param tilt_angle: the detector tilt in degrees
+	:param arc_radius: the radius of curvature of the detector in cm
+	:param executor: the process pool to use for the multiprocessed bits
+	:param order: the number of COSY orders to use in the calculation
+	:param num_recoil_particles: the statistics to use for calculating the resolution
+	:return: resolution at 16.75 MeV (keV)
+	"""
+	# first make sure the foil is a reasonable thickness
+	foil_broadening = calculate_foil_broadening(foil_thickness)
+	if foil_broadening > 5000:  # if it's really really thick, skip this calculation as it might not work properly
+		return 5000
+
 	# use MPR_Tools to calculate the resolution
 	monte_carlo = PerformanceAnalyzer(
 		MPRSpectrometer(
 			conversion_foil=ConversionFoil(
-				foil_radius=foil_diameter/2,
+				foil_radius=100*foil_diameter/2,
 				thickness=foil_thickness,
-				aperture_distance=aperture_distance,
-				aperture_radius=aperture_diameter/2,
+				aperture_distance=100*aperture_distance,
+				aperture_radius=100*aperture_diameter/2,
 				foil_material="B",
 			),
 			transfer_map_path=map_filename,
