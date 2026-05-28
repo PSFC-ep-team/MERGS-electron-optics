@@ -92,7 +92,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 	colors = ["#e6b648", "#2abd41", "#04d6e7", "r", "b", "m"]
 	for (resolutions, efficiencies, hyperparameters, label), color in zip(fronts, colors):
 		linestyle = "dashed" if "Ideal" in label else "solid"
-		performance_ax.plot(resolutions, efficiencies, label=label, linestyle=linestyle, linewidth=2, color=color)
+		performance_ax.plot(resolutions, efficiencies/1e-9, label=label, linestyle=linestyle, color=color)
 		parameter_ax.plot(array(hyperparameters)[:, 2]*100, array(hyperparameters)[:, 3]*50, label=label, color=color)
 
 	if len(fronts) > 1:
@@ -101,7 +101,7 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 	performance_ax.set_xlim(0, 800)
 	performance_ax.xaxis.set_major_locator(MultipleLocator(200))
 	performance_ax.set_yscale("log")
-	performance_ax.set_ylim(1e-14, 1e-12)
+	performance_ax.set_ylim(1e-5, 1e-3)
 	performance_ax.set_xlabel("Resolution (keV)")
 	performance_ax.set_ylabel("Efficiency")
 	performance_ax.set_title("Performance at 16.75 MeV")
