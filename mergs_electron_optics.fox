@@ -429,7 +429,8 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE z_face 1;
 	VARIABLE detector_left_size 1;
 	VARIABLE detector_right_size 1;
-	VARIABLE vertices 2 5;
+	VARIABLE vertices 2 6;
+	VARIABLE detector_bend 1;
 	VARIABLE i 1;
 	VARIABLE j 1;
 
@@ -454,7 +455,7 @@ PROCEDURE evaluate_spectrometer;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
-	system_length := p_m5_length + p_drift_pre_bend + dipole_length + p_detector_position; {m}
+	system_length := drift_pre_aperture + p_m5_length + p_drift_pre_bend + dipole_length + p_detector_position; {m}
 	IF p_detector_curvature#0;
 		detector_left_size := SIN(detector_left*p_detector_curvature)/p_detector_curvature;
 		detector_right_size := SIN(detector_right*p_detector_curvature)/p_detector_curvature;
@@ -462,19 +463,31 @@ PROCEDURE evaluate_spectrometer;
 		detector_left_size := detector_left;
 		detector_right_size := detector_right;
 	ENDIF;
-	vertices(1) := 0 & 0; {foil}
+	vertices(1) := -drift_pre_aperture & 0; {foil}
 	vertices(2) := p_m5_length + p_drift_pre_bend &
 				   -dipole_bend_radius + dipole_max_radius; {magnet front left}
 	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(p_dipole_bend_angle,90)/180*PI) &
 				   -dipole_bend_radius + dipole_max_radius*COS(MIN(p_dipole_bend_angle,90)/180*PI); {magnet back left}
-	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) + detector_left_size*SIN(p_dipole_bend_angle/180*PI) &
-				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI) + detector_left_size*COS(p_dipole_bend_angle/180*PI);
-	vertices(5) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) - detector_right_size*SIN(p_dipole_bend_angle/180*PI) &
-				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI) - detector_right_size*COS(p_dipole_bend_angle/180*PI);
+	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) &
+				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI); {detector center}
+	IF p_detector_curvature#0;
+		detector_bend := (1 - COS(detector_left_size*p_detector_curvature))/p_detector_curvature;
+	ELSEIF p_detector_curvature=0;
+		detector_bend := 0;
+	ENDIF;
+	vertices(5) := vertices(4)|1 + detector_bend*COS(p_dipole_bend_angle/180*PI+p_detector_tilt) + detector_left_size*SIN(p_dipole_bend_angle/180*PI+p_detector_tilt) &
+				   vertices(4)|2 - detector_bend*SIN(p_dipole_bend_angle/180*PI+p_detector_tilt) + detector_left_size*COS(p_dipole_bend_angle/180*PI+p_detector_tilt); {detector left}
+	IF p_detector_curvature#0;
+		detector_bend := (1 - COS(detector_right_size*p_detector_curvature))/p_detector_curvature;
+	ELSEIF p_detector_curvature=0;
+		detector_bend := 0;
+	ENDIF;
+	vertices(6) := vertices(4)|1 + detector_bend*COS(p_dipole_bend_angle/180*PI+p_detector_tilt) - detector_right_size*SIN(p_dipole_bend_angle/180*PI+p_detector_tilt) &
+				   vertices(4)|2 - detector_bend*SIN(p_dipole_bend_angle/180*PI+p_detector_tilt) - detector_right_size*COS(p_dipole_bend_angle/180*PI+p_detector_tilt); {detector left}
 	system_depth := 0;
 	system_width := 0;
 	system_diagonal := 0;
-	LOOP i 2 5;
+	LOOP i 2 6;
 		LOOP j 1 I-1;
 			system_depth := MAX(system_depth, ABS(vertices(i)|1 - vertices(j)|1));
 			system_width := MAX(system_width, ABS(vertices(i)|2 - vertices(j)|2));
