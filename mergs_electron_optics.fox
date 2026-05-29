@@ -843,7 +843,7 @@ PROCEDURE main;
 	WRITE out 'system length:' system_length*100 'cm';
 	WRITE out 'system depth:' system_depth*100 'cm';
 	WRITE out 'system width:' system_width*100 'cm';
-	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=0 |max=1000 |bias=-1/10 |unit=cm}}
+	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=0 |max=1000 |bias=-1/5.0 |unit=cm}}
 	WRITE out 'beam centroid:';
 	LOOP i 1 num_energies;
 		WRITE out SF(beam_photon_energies(i), '(F10.6)')&' MeV ->';

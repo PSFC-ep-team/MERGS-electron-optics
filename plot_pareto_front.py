@@ -81,7 +81,12 @@ def plot_pareto_fronts(*designs: str | tuple[float] | tuple[float, float, float]
 
 		fronts.append((resolutions, efficiencies, hyperparameters, label))
 
-	performance_fig = plt.figure(figsize=(4.5, 4.0))
+	plt.rcParams["font.size"] = 10
+	plt.rcParams['xtick.labelsize'] = 10
+	plt.rcParams['ytick.labelsize'] = 10
+	plt.rcParams['lines.linewidth'] = 1.5
+
+	performance_fig = plt.figure(figsize=(3.5, 3.5))
 	performance_ax = performance_fig.add_subplot()
 	parameter_fig = plt.figure(figsize=(6.0, 3.0))
 	parameter_ax = parameter_fig.add_subplot()
@@ -292,5 +297,5 @@ def run_concurrently(function: Callable, parameter_sweep: Sequence, *args, **kwa
 if __name__ == "__main__":
 	plot_pareto_fronts(
 		"generated/MERGS500_electron_optics",
-		"generated/MERGS350_electron_optics",
+		"generated/MERGS300_electron_optics",
 		"generated/MERGS250_electron_optics")

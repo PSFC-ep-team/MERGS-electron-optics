@@ -309,7 +309,7 @@ def write_SVG(filename: str, paths: List[Path]) -> None:
 		'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox=".00 .00 3.00 3.00" width="30cm" height="30cm">\n'
 		'  <style>\n'
 		'    .magnet { fill: #949494; stroke: none; }\n'
-		'    .plane { fill: none; stroke: #949494; stroke-width: .01; stroke-linecap: butt; }\n'
+		'    .plane { fill: none; stroke: #484848; stroke-width: .01; stroke-linecap: butt; }\n'
 		'    .central-ray { fill: none; stroke: #016317; stroke-width: .01; stroke-linecap: round; }\n'
 		'    .guide { fill: none; stroke: #ffffff; stroke-width: .005; stroke-linecap: square; stroke-dasharray: .005 .015 }\n'
 		'  </style>\n'

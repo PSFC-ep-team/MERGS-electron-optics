@@ -85,7 +85,7 @@ def optimize_electron_optics(
 			constraints=reformat_constraints(script, cache, jac="3-point"),
 			method='SLSQP',
 			options=dict(
-				ftol=1e-4,
+				ftol=1e-5,
 			)
 		)
 		solution = result.x
@@ -118,7 +118,7 @@ def optimize_electron_optics(
 			method='COBYQA',
 			options=dict(
 				initial_tr_radius=1e-1,
-				final_tr_radius=1e-4,
+				final_tr_radius=1e-5,
 				feasibility_tol=1e-8,
 			)
 		)

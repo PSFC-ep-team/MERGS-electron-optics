@@ -14,8 +14,9 @@ from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian, \
-	empty
+	empty, shape
 
+from draw_magnets import draw_magnets
 from electron_optics import optimize_electron_optics, load_script, run_cosy
 
 # try to silence this error
@@ -56,20 +57,34 @@ def initialize_process(new_lock):
 	file_lock = new_lock
 
 
-def optimize_hyperparameters(name: str, target_resolution: float, target_efficiency: float):
+def optimize_hyperparameters(
+		name: str, target_resolution: float, target_efficiency: float,
+		min_foil_diameter=0., max_foil_diameter=inf,
+		min_aperture_distance=0., max_aperture_distance=inf,
+		min_aperture_diameter=0., max_aperture_diameter=inf,
+):
 	"""
 	come up with a spectrometer design that meets the given resolution and efficiency
 	for the lowest cost possible, and save it to disk at the given name
 	:param name: the final filename at which to save the COSY file
 	:param target_resolution: the desired resolution at 16.75 MeV, in keV
 	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
+	:param min_foil_diameter: the smallest foil diameter to bother checking (m)
+	:param max_foil_diameter: the largest foil diameter to bother checking (m)
+	:param min_aperture_distance: the smallest aperture distance to bother checking (m)
+	:param max_aperture_distance: the largest aperture distance to bother checking (m)
+	:param min_aperture_diameter: the smallest aperture diameter to bother checking (m)
+	:param max_aperture_diameter: the largest aperture diameter to bother checking (m)
 	"""
 	logging.info("---")
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
-	foil_diameters = array([.03])  # in general, it never makes sense to shrink the foil diameter when you can increase the aperture distance instead
-	aperture_distances = array([.30, .40, .50, .60, .70, .80])
-	aperture_diameters = array([.05, .04, .035, .03, .025, .02, .015])
-	frugalities = array([20, 100, 200, 400, 700, 1000, 1400, 2000])**2
+	foil_diameters = array([.03, .02, .01])
+	foil_diameters = foil_diameters[(foil_diameters >= min_foil_diameter) & (foil_diameters <= max_foil_diameter)]
+	aperture_distances = array([.25, .30, .40, .50, .60, .70, .80, .90, 1.00, 1.10, 1.20, 1.30])
+	aperture_distances = aperture_distances[(aperture_distances >= min_aperture_distance) & (aperture_distances <= max_aperture_distance)]
+	aperture_diameters = array([.06, 0.055, .05, .045, .04, .035, .03, .025, .02, .015])
+	aperture_diameters = aperture_diameters[(aperture_diameters >= min_aperture_diameter) & (aperture_diameters <= max_aperture_diameter)]
+	frugalities = array([30, 50, 100, 150, 200, 300, 400, 550, 700, 850, 1000, 1200, 1400, 1600, 2000])**2
 	task_grid = empty((foil_diameters.size, aperture_distances.size, aperture_diameters.size), dtype=object)
 	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
 	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
@@ -144,6 +159,7 @@ def optimize_hyperparameters(name: str, target_resolution: float, target_efficie
 			optimize_parameters(
 				foil_diameter, foil_thickness, aperture_distance, aperture_diameter, frugality,
 				final=True, save_name=f"{name}_electron_optics")
+			draw_magnets(f"generated/{name}_electron_optics")
 			logging.info(f"has been saved to {name}_electron_optics!")
 
 
@@ -177,7 +193,12 @@ def optimize_mesoparameters(
 
 	logging.info(f"beginning frugality scan for [{foil_diameter}, {aperture_distance}, {aperture_diameter}]...")
 
-	for frugality in frugalities:
+	frugality_queue = list(enumerate(frugalities))[::-3]  # to start off, look at every third frugality
+	checked = full(shape(frugalities), False)
+
+	while len(frugality_queue) > 0:
+		i, frugality = frugality_queue.pop()
+		checked[i] = True
 
 		# run the inner optimization scan
 		try:
@@ -187,7 +208,9 @@ def optimize_mesoparameters(
 			# sometimes the constraints just can't be met
 			if "this optimization might be impossible" in str(e):
 				logging.warning(e)
-				continue  # try a different frugality; sometimes that helps for some reason
+				if i >= 1 and not checked[i - 1]:  # try a different frugality; sometimes that helps for some reason
+					frugality_queue.append((i - 1, frugalities[i - 1]))
+				continue
 			# if it's something else, then I'm scared and confused and we should probably stop.
 			else:
 				raise
@@ -195,7 +218,9 @@ def optimize_mesoparameters(
 			# inconsistencies in how we do the transfer map might cause this to fail (TODO: if I make MPR_Tools use multiple in series then we can probably remove this)
 			if str(e) == "Some of these rays don't hit the curved detector.":
 				logging.warning("MPR_Tools had an invalid ray geometry with the detector, even though COSY thought it was fine.")
-				continue  # just avoid that geometry, I gess, since the map is probably not even converged.  try a different frugality.
+				if i >= 1 and not checked[i - 1]:  # just avoid that geometry, I gess, since the map is probably not even converged.  try a different frugality.
+					frugality_queue.append((i - 1, frugalities[i - 1]))
+				continue
 			# an aperture that's much smaller than the foil can make this calculation arbitrarily slow.
 			elif str(e) == "Failed to generate electron":
 				logging.warning("The aperture geometry is failing.  Consider increasing the allowed number of attempts.")
@@ -214,9 +239,13 @@ def optimize_mesoparameters(
 			best_frugality = frugality
 		best_resolution = min(resolution, best_resolution)
 
-		# if the resolution requirement was not met here, you can skip the higher frugalities
+		# if the resolution requirement was not met here, don't go any higher, but try stepping back in frugality
 		if resolution > target_resolution:
-			break
+			frugality_queue = []
+			if i >= 1 and not checked[i - 1]:
+				frugality_queue.append((i - 1, frugalities[i - 1]))
+			if i >= 2 and not checked[i - 2]:
+				frugality_queue.append((i - 2, frugalities[i - 2]))
 
 	logging.info(f"done with [{foil_diameter}, {aperture_distance}, {aperture_diameter}]!")
 	return foil_thickness, best_resolution, best_cost, best_frugality
@@ -487,7 +516,7 @@ def remove_from_permanent_geometry_cache(
 			with open("generated/magnet_optimization_cache.txt", mode="w") as file:
 				file.writelines(lines)
 	except FileNotFoundError:
-		raise FileNotFoundError("geometry cache is absent")
+		pass
 
 
 def append_to_permanent_geometry_cache(
@@ -525,7 +554,7 @@ def remove_from_permanent_resolution_cache(
 			with open("generated/resolution_cache.txt", mode="w") as file:
 				file.writelines(lines)
 	except FileNotFoundError:
-		raise FileNotFoundError("MC cache is absent")
+		pass
 
 
 def append_to_permanent_resolution_cache(
