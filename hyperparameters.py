@@ -4,7 +4,7 @@ code for scanning hyperparameters to find the set of all good designs
 import logging
 import multiprocessing
 import traceback
-from concurrent.futures import Executor
+from concurrent.futures import Executor, Future
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Optional, Sequence
 
@@ -14,7 +14,7 @@ from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian, \
-	empty, shape
+	shape
 
 from draw_magnets import draw_magnets
 from electron_optics import optimize_electron_optics, load_script, run_cosy
@@ -59,9 +59,9 @@ def initialize_process(new_lock):
 
 def optimize_hyperparameters(
 		name: str, target_resolution: float, target_efficiency: float,
-		min_foil_diameter=0., max_foil_diameter=inf,
-		min_aperture_distance=0., max_aperture_distance=inf,
-		min_aperture_diameter=0., max_aperture_diameter=inf,
+		foil_diameters: Sequence[float],
+		aperture_distances: Sequence[float],
+		aperture_diameters: Sequence[float],
 ):
 	"""
 	come up with a spectrometer design that meets the given resolution and efficiency
@@ -69,25 +69,16 @@ def optimize_hyperparameters(
 	:param name: the final filename at which to save the COSY file
 	:param target_resolution: the desired resolution at 16.75 MeV, in keV
 	:param target_efficiency: the desired number of Compton counts per photons born in the plasma
-	:param min_foil_diameter: the smallest foil diameter to bother checking (m)
-	:param max_foil_diameter: the largest foil diameter to bother checking (m)
-	:param min_aperture_distance: the smallest aperture distance to bother checking (m)
-	:param max_aperture_distance: the largest aperture distance to bother checking (m)
-	:param min_aperture_diameter: the smallest aperture diameter to bother checking (m)
-	:param max_aperture_diameter: the largest aperture diameter to bother checking (m)
+	:param foil_diameters: the foil diameters to checking (m)
+	:param aperture_distances: the aperture distances to check (m)
+	:param aperture_diameters: the aperture diameters to check (m)
 	"""
 	logging.info("---")
 	logging.info(f"Starting optimization of '{name}' to achieve {target_resolution} keV and {target_efficiency}.")
-	foil_diameters = array([.03, .02, .01])
-	foil_diameters = foil_diameters[(foil_diameters >= min_foil_diameter) & (foil_diameters <= max_foil_diameter)]
-	aperture_distances = array([.25, .30, .40, .50, .60, .70, .80, .90, 1.00, 1.10, 1.20, 1.30])
-	aperture_distances = aperture_distances[(aperture_distances >= min_aperture_distance) & (aperture_distances <= max_aperture_distance)]
-	aperture_diameters = array([.06, 0.055, .05, .045, .04, .035, .03, .025, .02, .015])
-	aperture_diameters = aperture_diameters[(aperture_diameters >= min_aperture_diameter) & (aperture_diameters <= max_aperture_diameter)]
-	frugalities = array([30, 50, 100, 150, 200, 300, 400, 550, 700, 850, 1000, 1200, 1400, 1600, 2000])**2
-	task_grid = empty((foil_diameters.size, aperture_distances.size, aperture_diameters.size), dtype=object)
-	resolution_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
-	cost_grid = full((foil_diameters.size, aperture_distances.size, aperture_diameters.size), nan)
+	frugalities = array([20, 50, 100, 150, 200, 300, 400, 550, 700, 850, 1000, 1200, 1400, 1600, 2000])**2
+	task_grid: dict[tuple[int, int, int], Future] = {}
+	resolution_grid = full((len(foil_diameters), len(aperture_distances), len(aperture_diameters)), nan)
+	cost_grid = full((len(foil_diameters), len(aperture_distances), len(aperture_diameters)), nan)
 	best_cost = inf
 	best: Optional[tuple[float, float, float, float, float]] = None
 
@@ -112,7 +103,7 @@ def optimize_hyperparameters(
 					except Exception as e:
 						traceback.print_exc()
 						logging.error(str(e))
-						continue
+						raise
 					resolution_grid[i, j, k] = local_best_resolution
 					cost_grid[i, j, k] = local_best_cost
 
@@ -132,13 +123,13 @@ def optimize_hyperparameters(
 						fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 						ax = fig.add_subplot()
 						mesh = ax.contourf(
-							aperture_distances*100, aperture_diameters*100, cost_grid[i].T,
+							array(aperture_distances)*100, array(aperture_diameters)*100, cost_grid[i].T,
 							cmap="viridis_r", levels=MaxNLocator(10).tick_values(vmin, vmax),
 							extend="max")
 						mesh.set_edgecolor("face")
 						if any(resolution_grid <= target_resolution):
 							ax.contourf(
-								aperture_distances*100, aperture_diameters*100, resolution_grid[i].T,
+								array(aperture_distances)*100, array(aperture_diameters)*100, resolution_grid[i].T,
 								levels=[0, target_resolution, inf], colors=["none", "k"])
 						ax.set_xlabel("Aperture distance (cm)")
 						ax.set_ylabel("Aperture diameter (cm)")
@@ -567,9 +558,21 @@ def append_to_permanent_resolution_cache(
 
 
 if __name__ == "__main__":
-	optimize_hyperparameters("MERGS500", 500, 1e-13)
-	optimize_hyperparameters("MERGS400", 400, 1e-13)
-	optimize_hyperparameters("MERGS350", 350, 1e-13)
-	optimize_hyperparameters("MERGS300", 300, 1e-13)
-	optimize_hyperparameters("MERGS250", 250, 1e-13)
-	optimize_hyperparameters("MERGS300X", 300, 2e-13)
+	optimize_hyperparameters(
+		"MERGS500", 500, 1e-13,
+		foil_diameters=[.03, .02],
+		aperture_distances=[.40, .50, .60, .70, .80],
+		aperture_diameters=[.03, .025, .02],
+	)
+	optimize_hyperparameters(
+		"MERGS300", 300, 1e-13,
+		foil_diameters=[.03],
+		aperture_distances=[.50, .60, .70, .80, .90],
+		aperture_diameters=[.04, .035, .03, .025],
+	)
+	optimize_hyperparameters(
+		"MERGS250", 250, 1e-13,
+		foil_diameters=[.03],
+		aperture_distances=[.90, 1.00, 1.10, 1.20, 1.30],
+		aperture_diameters=[.06, .055, .05, .045, .04],
+	)

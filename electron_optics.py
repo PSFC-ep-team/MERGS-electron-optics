@@ -69,8 +69,7 @@ def optimize_electron_optics(
 
 	if method == "Nelder-Mead":
 		# project into bounds
-		for i in range(len(initial_guess)):
-			initial_guess[i] = min(max(bounds[i][0], initial_guess[i]), bounds[i][1])
+		initial_guess = [min(max(bounds[i][0], initial_guess[i]), bounds[i][1]) for i in range(len(initial_guess))]
 		# check to make sure the initial guess is valid
 		objective_function(initial_guess, script, frugality, constraint_handling="error", cache=cache)
 
@@ -231,8 +230,11 @@ def optimize_electron_optics(
 
 	# clean up the temporary files
 	for filename in os.listdir("generated"):
-		if re.search(r"_proc[0-9]+", filename):
-			os.remove(f"generated/{filename}")
+		if re.search(f"proc{multiprocessing.current_process().pid}", filename):
+			try:
+				os.remove(f"generated/{filename}")
+			except OSError as e:
+				logging.warning(f"when I tried to clean up my temporary files, {e}")
 
 	# extract the performance metrics
 	resolution = estimate_resolution(script, solution, cache)
@@ -285,7 +287,7 @@ def estimate_resolution(
 		output_mode="none",
 		cache=cache)
 
-	resolutions = outputs["resolutions"]
+	resolutions = [outputs[key] for key in script.objectives]
 	try:
 		return sqrt(sum(resolution**2 for resolution in resolutions)/len(resolutions))
 	except OverflowError:
@@ -396,11 +398,6 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 
 		# extract the resolution at each energy
 		lines = output.split("\n")
-		i_resolution = lines.index("algebraic resolution:")
-		resolutions = []
-		for i in range(i_resolution + 1, len(lines), 3):
-			if lines[i].endswith("MeV ->"):
-				resolutions.append(read_cosy_float(lines[i + 1].strip()))
 
 		# extract the map matrix
 		i_map_start = lines.index("transfer map matrix -----------------------------------------------------------")
@@ -408,10 +405,9 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 		map_matrix = "\n".join(lines[i_map_start + 1:i_map_end])
 		map_matrix = re.sub(r"([0-9])-", r"\1 -", map_matrix)  # fix it when COSY forgets a space
 
-		outputs: dict[str, Any] = {"resolutions": resolutions, "map": map_matrix}
+		outputs: dict[str, Any] = {"map": map_matrix}
 		# extract all other outputs
-		i_multienergy_quantities = lines.index("beam centroid:")
-		for i in range(i_multienergy_quantities):
+		for i in range(i_map_start):
 			if lines[i].endswith(":"):
 				key = lines[i][:-1].strip()
 				value = read_cosy_float(lines[i + 1])
@@ -444,8 +440,8 @@ def load_script(filename: str, foil_diameter: float = None, aperture_distance: f
 		foil_width=foil_diameter, foil_height=foil_diameter,
 		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
 		drift_pre_aperture=aperture_distance, order=order)
-	parameters, constraints = infer_parameter_names(script_content)
-	return Script(script_content, parameters, constraints)
+	parameters, constraints, objectives = infer_parameter_names(script_content)
+	return Script(script_content, parameters, constraints, objectives)
 
 
 def set_hyperparameters(content: str, **hyperparameters) -> str:
@@ -458,42 +454,55 @@ def set_hyperparameters(content: str, **hyperparameters) -> str:
 	return content
 
 
-def infer_parameter_names(content: str) -> Tuple[List[Parameter], List[Parameter]]:
+def infer_parameter_names(content: str) -> Tuple[List[Parameter], List[Parameter], List[str]]:
 	""" pull out the list of tunable inputs and the list of constrained inputs """
-	variable_lists = {}
-	for variable_type in ["PARAM", "CONSTRAINT"]:
-		variable_lists[variable_type] = []
-		for tagged_line in re.finditer(r"^.*\{\{" + variable_type + r".*\}\}.*$", content, re.MULTILINE):
-			variable_lists[variable_type].append(
-				infer_single_parameter_name(variable_type, content[tagged_line.start():tagged_line.end()]))
-	parameters = variable_lists["PARAM"]
-	constraints = variable_lists["CONSTRAINT"]
+	parameters = []
+	for tagged_line in re.finditer(r"^.*\{\{PARAM.*\}\}.*$", content, re.MULTILINE):
+		data = parse_cosy_tag("PARAM", content[tagged_line.start():tagged_line.end()])
+		parameters.append(Parameter(
+			data["name"], float(data["value"]),
+			float(data["min"]), float(data["max"]),
+			float(evaluate(data["bias"])),
+			data["unit"],
+		))
 	if len(parameters) == 0:
 		raise ValueError("the COSY file didn't seem to have any parameters in it.")
-	return parameters, constraints
+
+	constraints = []
+	for tagged_line in re.finditer(r"^.*\{\{CONSTRAINT.*\}\}.*$", content, re.MULTILINE):
+		data = parse_cosy_tag("CONSTRAINT", content[tagged_line.start():tagged_line.end()])
+		constraints.append(Parameter(
+			data["name"], None,
+			float(data["min"]), float(data["max"]),
+			float(evaluate(data["bias"])),
+			data["unit"],
+		))
+
+	objectives = []
+	for tagged_line in re.finditer(r"^.*\{\{OBJECTIVE.*\}\}.*$", content, re.MULTILINE):
+		data = parse_cosy_tag("OBJECTIVE", content[tagged_line.start():tagged_line.end()])
+		objectives.append(data["name"])
+
+	return parameters, constraints, objectives
 
 
-def infer_single_parameter_name(variable_type: str, line: str) -> Parameter:
+def parse_cosy_tag(tag_type: str, line: str) -> dict[str, str]:
 	for pattern in [
-		r"\b(?P<name>[A-Za-z0-9_]+)\s*:=\s*(?P<value>[-.0-9eE]+).*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
-		r"\bWRITE out '(?P<name>[A-Za-z0-9_ ]+):=?\s*'.*\{\{" + variable_type + r"(?P<args>[^}]*)\}\}",
+		r"\b(?P<name>[A-Za-z0-9@_]+)\s*:=\s*(?P<value>[-.0-9eE]+).*\{\{" + tag_type + r"(?P<args>[^}]*)\}\}",
+		r"\bWRITE out '(?P<name>[A-Za-z0-9@_ ]+):=?\s*'.*\{\{" + tag_type + r"(?P<args>[^}]*)\}\}",
 	]:
 		match = re.search(pattern, line)
 		if match is not None:
-			hyperparameters = {}
+			hyperparameters = {"name": match["name"].strip()}
+			if "value" in match.groupdict():
+				hyperparameters["value"] = match["value"]
 			for arg in match["args"].split("|"):
 				if len(arg.strip()) > 0:
 					key, value = arg.split("=")
 					hyperparameters[key.strip()] = value.strip()
-			return Parameter(
-				name=match["name"].strip(),
-				default=float(match["value"]) if "value" in match.groupdict() else None,
-				min=float(hyperparameters["min"]),
-				max=float(hyperparameters["max"]),
-				bias=float(evaluate(hyperparameters["bias"])),
-				unit=hyperparameters["unit"],
-			)
-	raise ValueError(f"You seem to have tried to specify a {variable_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
+
+			return hyperparameters
+	raise ValueError(f"You seem to have tried to specify a {tag_type.lower()}, but I don't understand which value you're tagging: {repr(line)}")
 
 
 def reformat_constraints(script: Script, cache: dict[tuple, dict[str, Any]], **kwargs) -> list[optimize.NonlinearConstraint]:
@@ -590,10 +599,11 @@ def read_cosy_float(s: str) -> float:
 
 
 class Script:
-	def __init__(self, content: str, parameters: list[Parameter], constraints: list[Parameter]):
+	def __init__(self, content: str, parameters: list[Parameter], constraints: list[Parameter], objectives: list[str]):
 		self.content = content
 		self.parameters = parameters
 		self.constraints = constraints
+		self.objectives = objectives
 
 
 class Parameter:
@@ -612,3 +622,35 @@ if __name__ == '__main__':
 		order=9, method="COBYQA",
 		save_name="mergs_optimal_electron_optics",
 	)
+
+	# from numpy import where, linspace
+	# import matplotlib.pyplot as plt
+	#
+	# script = load_script("MERGS_electron_optics", .03, .50, .03, 5)
+	# center_point = array([parameter.default for parameter in script.parameters])
+	# uppers = array([parameter.max for parameter in script.parameters])
+	# lowers = array([parameter.min for parameter in script.parameters])
+	# start_point = center_point - (uppers - lowers)*0.05
+	# start_point = where(start_point < lowers, 2*lowers - start_point, start_point)
+	# end_point = center_point + (uppers - lowers)*0.05
+	# end_point = where(end_point > uppers, 2*uppers - end_point, end_point)
+	#
+	# xs = linspace(0, 1, 501)
+	# ys = [objective_function(start_point*(1 - x) + end_point*x, script, 0.01, constraint_handling="ignore", cache={}) for x in xs]
+	# parameters = []
+	# for x in xs:
+	# 	results = run_cosy(script, start_point*(1 - x) + end_point*x, output_mode="none")
+	# 	parameters.append((results["p_detector_position"], results["p_detector_tilt"], results["p_detector_curvature"]))
+	# parameters = array(parameters)
+	# plt.figure()
+	# plt.plot(xs, ys)
+	# plt.xlim(0, 1)
+	# plt.ylim(15, 21)
+	# plt.grid()
+	# plt.figure()
+	# plt.plot(xs, parameters[:, 0], label="z0")
+	# plt.plot(xs, parameters[:, 1], label="β")
+	# plt.plot(xs, parameters[:, 2], label="κ")
+	# plt.xlim(0, 1)
+	# plt.grid()
+	# plt.show()
