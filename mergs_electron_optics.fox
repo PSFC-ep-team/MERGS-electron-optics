@@ -739,7 +739,7 @@ PROCEDURE main;
 	p_dipole_field := 0.15688222105032823; {{PARAM |min=0.023 |max=1.1 |bias=0 |unit=T}}
 	p_m5_length := 0.17225472220056265; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
 	p_m5_radius := p_m5_length/4;
-	p_dipole_bend_angle := 57.6159241100956; {{PARAM |min=10 |max=60 |bias=0 |unit=deg}}
+	p_dipole_bend_angle := 60;
 	p_dipole_halfwidth := 0.15;
 	p_drift_pre_bend := 0.09310480034985447; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
 	p_shape_in_1 := 1.0; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
@@ -757,7 +757,7 @@ PROCEDURE main;
     p_detector_curvature := 0.0; {{PARAM |min=-5 |max=0 |bias=0 |unit=1/m}}
 
 	{ set the detector thickness }
-	detector_thickness := 0.02; {m}
+	detector_thickness := 0.05; {m}
 
 	{ ---- spectrometer definition ---- }
 

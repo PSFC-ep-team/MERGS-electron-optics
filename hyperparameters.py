@@ -186,6 +186,7 @@ def optimize_mesoparameters(
 
 	frugality_queue = list(enumerate(frugalities))[::-3]  # to start off, look at every third frugality
 	checked = full(shape(frugalities), False)
+	we_have_found_the_limit = False
 
 	while len(frugality_queue) > 0:
 		i, frugality = frugality_queue.pop()
@@ -233,10 +234,12 @@ def optimize_mesoparameters(
 		# if the resolution requirement was not met here, don't go any higher, but try stepping back in frugality
 		if resolution > target_resolution:
 			frugality_queue = []
-			if i >= 1 and not checked[i - 1]:
-				frugality_queue.append((i - 1, frugalities[i - 1]))
-			if i >= 2 and not checked[i - 2]:
-				frugality_queue.append((i - 2, frugalities[i - 2]))
+			if not we_have_found_the_limit:
+				we_have_found_the_limit = True
+				if i >= 1 and not checked[i - 1]:
+					frugality_queue.append((i - 1, frugalities[i - 1]))
+				if i >= 2 and not checked[i - 2]:
+					frugality_queue.append((i - 2, frugalities[i - 2]))
 
 	logging.info(f"done with [{foil_diameter}, {aperture_distance}, {aperture_diameter}]!")
 	return foil_thickness, best_resolution, best_cost, best_frugality
