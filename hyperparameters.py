@@ -14,7 +14,7 @@ from MPR_Tools.config.constants import FOIL_MATERIALS
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from numpy import any, log1p, inf, degrees, zeros, isfinite, array, full, nan, seterr, log, sqrt, nanmin, nanmedian, \
-	shape
+	shape, nanmax
 
 from draw_magnets import draw_magnets
 from electron_optics import optimize_electron_optics, load_script, run_cosy
@@ -117,9 +117,11 @@ def optimize_hyperparameters(
 						vmin = nanmin(cost_grid[i])
 						if any(resolution_grid[i] <= target_resolution):
 							vmed = nanmedian(cost_grid[i][resolution_grid[i] <= target_resolution])
+							vmax = nanmax(cost_grid[i][resolution_grid[i] <= target_resolution])
 						else:
 							vmed = nanmedian(cost_grid[i])
-						vmax = 2*vmed - vmin
+							vmax = nanmax(cost_grid[i])
+						vmax = min(vmax, 2*vmed - vmin)
 						fig = plt.figure(figsize=(5.5, 3), facecolor="none")
 						ax = fig.add_subplot()
 						mesh = ax.contourf(
