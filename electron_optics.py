@@ -21,7 +21,7 @@ os.makedirs("generated/", exist_ok=True)
 
 
 def optimize_electron_optics(
-		foil_diameter: float, aperture_distance: float, aperture_diameter: float,
+		foil_diameter: float, aperture_distance: float, aperture_width: float, aperture_height: float,
 		frugality: float, order=6, method="COBYQA", save_name=None,
 		initial_guess: Sequence[float] = None, constraint_tolerance=1e-4,
 		this_is_your_last_chance=False) -> tuple[Sequence[float], float, float]:
@@ -29,7 +29,8 @@ def optimize_electron_optics(
 	optimize a COSY file by tweaking the given parameters to minimize the defined objective function
 	:param foil_diameter: the foil size in m
 	:param aperture_distance: the distance from the foil to the aperture in m
-	:param aperture_diameter: the aperture size in m
+	:param aperture_width: the aperture width in m
+	:param aperture_height: the aperture height in m
 	:param frugality: the weight to put on the cost constraints
 	:param order: the highest order of term to include in COSY's calculations
 	:param method: one of "SLSQP", "COBYLA", "COBYQA", "Nelder-Mead", "differential evolution", or "basin hopping",
@@ -49,7 +50,7 @@ def optimize_electron_optics(
 		for method in methods:
 			try:
 				guess, resolution, cost = optimize_electron_optics(
-					foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+					foil_diameter, aperture_distance, aperture_width, aperture_height, frugality, order,
 					method, save_name, guess)
 			except RuntimeError as e:
 				logging.warning(f"skipping {method} because {e}")
@@ -58,7 +59,7 @@ def optimize_electron_optics(
 		else:
 			raise RuntimeError("none of the algorithms worked.  this optimization might be impossible.")
 
-	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_diameter, order)
+	script = load_script("mergs_electron_optics", foil_diameter, aperture_distance, aperture_width, aperture_height, order)
 
 	cache = {}
 
@@ -202,7 +203,7 @@ def optimize_electron_optics(
 				# use SLSQP, as even when there are smoothness problems it's decent at getting away from constraints
 				try:
 					better_start_point, _, _ = optimize_electron_optics(
-						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+						foil_diameter, aperture_distance, aperture_width, aperture_height, frugality, order,
 						method="SLSQP", save_name=save_name, initial_guess=initial_guess,
 						constraint_tolerance=inf,
 					)
@@ -212,7 +213,7 @@ def optimize_electron_optics(
 				else:
 					# that seems to have worked.  let's try that again.
 					return optimize_electron_optics(
-						foil_diameter, aperture_distance, aperture_diameter, frugality, order,
+						foil_diameter, aperture_distance, aperture_width, aperture_height, frugality, order,
 						method=method, save_name=save_name, initial_guess=better_start_point,
 						this_is_your_last_chance=True,
 					)
@@ -425,20 +426,22 @@ def run_cosy(script: Script, parameter_vector: Optional[Sequence[float]], output
 	return outputs
 
 
-def load_script(filename: str, foil_diameter: float = None, aperture_distance: float = None, aperture_diameter: float = None, order: int = None) -> Script:
+def load_script(filename: str, foil_diameter: float = None, aperture_distance: float = None, aperture_width: float = None, aperture_height: float = None, order: int = None) -> Script:
 	""" load the COSY script from disc into a Script object """
 	if foil_diameter is not None and foil_diameter > 1:
 		raise ValueError("I'm fairly certain your units are wrong.")
 	if aperture_distance is not None and aperture_distance > 10:
 		raise ValueError("I'm fairly certain your units are wrong.")
-	if aperture_diameter is not None and aperture_diameter > 1:
+	if aperture_width is not None and aperture_width > 1:
+		raise ValueError("I'm fairly certain your units are wrong.")
+	if aperture_height is not None and aperture_height > 1:
 		raise ValueError("I'm fairly certain your units are wrong.")
 	with open(f'{filename}.fox', 'r') as file:
 		script_content = file.read()
 	script_content = set_hyperparameters(
 		script_content,
 		foil_width=foil_diameter, foil_height=foil_diameter,
-		aperture_width=aperture_diameter, aperture_height=aperture_diameter,
+		aperture_width=aperture_width, aperture_height=aperture_height,
 		drift_pre_aperture=aperture_distance, order=order)
 	parameters, constraints, objectives = infer_parameter_names(script_content)
 	return Script(script_content, parameters, constraints, objectives)
@@ -618,8 +621,8 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		.03, .40, .04, 500_000,
 		order=9, method="COBYQA",
+		.016, .30, .005, .02, 10_000,
 		save_name="mergs_optimal_electron_optics",
 	)
 

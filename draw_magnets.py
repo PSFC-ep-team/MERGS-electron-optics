@@ -4,7 +4,7 @@ import os
 import re
 from typing import Tuple, List, Optional
 
-from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where, argmin, argmax
+from numpy import sin, cos, pi, zeros_like, linspace, hypot, inf, where, argmin, argmax, sqrt
 
 from electron_optics import run_cosy, load_script
 
@@ -39,8 +39,8 @@ def draw_magnets(filename):
 	)
 	x, y = draw_multipole_magnet(
 		paths, x, y, θ,
-		parameters["p_m5_length"],
-		parameters["p_m5_radius"],
+		parameters["p_m5a_length"],
+		parameters["p_m5a_radius"],
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
@@ -68,6 +68,15 @@ def draw_magnets(filename):
 			parameters["p_shape_out_5"],
 		],
 		parameters["central_energy"],
+	)
+	x, y = draw_drift_length(
+		paths, x, y, θ,
+		parameters["p_drift_post_bend"],
+	)
+	x, y = draw_multipole_magnet(
+		paths, x, y, θ,
+		parameters["p_m5b_length"],
+		parameters["p_m5b_radius"],
 	)
 	x, y = draw_drift_length(
 		paths, x, y, θ,
@@ -162,7 +171,7 @@ def draw_bending_magnet(
 		length: float, field: float, min_bend_radius: float, max_bend_radius: float, gap_height: float,
 		in_shape_parameters: List[float], out_shape_parameters: List[float], central_energy: float,
 ) -> Tuple[float, float, float]:
-	central_momentum = (0.5110 + central_energy)*1.602e-13/2.998e8  # kg*m/s
+	central_momentum = sqrt(2*1.673e-27*central_energy*1.602e-13)  # kg*m/s
 	central_bend_radius = central_momentum/(1.602e-19*field)  # m
 	bend_angle = length/central_bend_radius  # radians
 	x_center = x - central_bend_radius*sin(θ)

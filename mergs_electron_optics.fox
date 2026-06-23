@@ -3,7 +3,7 @@ PROCEDURE mergs_ion_optics;
 
 VARIABLE central_energy 1;
 VARIABLE num_energies 1;
-VARIABLE beam_photon_energies 1 5;
+VARIABLE beam_neutron_energies 1 5;
 VARIABLE beam_colors 1 5;
 
 VARIABLE foil_width 1;
@@ -23,23 +23,26 @@ VARIABLE p_shape_out_3 1;
 VARIABLE p_shape_out_4 1;
 VARIABLE p_shape_out_5 1;
 
-VARIABLE p_m5_quad_field 1;
-VARIABLE p_m5_hex_field 1;
+VARIABLE p_m5a_quad_field 1;
 VARIABLE p_dipole_field 1;
-VARIABLE p_m5_radius 1;
-VARIABLE p_m5_length 1;
+VARIABLE p_m5b_quad_field 1;
+VARIABLE p_m5b_hex_field 1;
+VARIABLE p_m5a_radius 1;
+VARIABLE p_m5a_length 1;
 VARIABLE p_dipole_halfwidth 1;
 VARIABLE p_dipole_bend_angle 1;
+VARIABLE p_m5b_radius 1;
+VARIABLE p_m5b_length 1;
 VARIABLE p_drift_pre_bend 1;
+VARIABLE p_drift_post_bend 1;
 
 VARIABLE p_detector_position 1;
 VARIABLE p_detector_tilt 1;
 VARIABLE p_detector_curvature 1;
 VARIABLE detector_thickness 1;
 
-VARIABLE m5_required_radius 1;
-VARIABLE m5_quad_power 1;
-VARIABLE m5_hex_power 1;
+VARIABLE m5a_required_radius 1;
+VARIABLE m5a_quad_power 1;
 VARIABLE dipole_length 1;
 VARIABLE dipole_bend_radius 1;
 VARIABLE dipole_min_bend_radius 1;
@@ -48,12 +51,15 @@ VARIABLE dipole_gap_height 1;
 VARIABLE dipole_front_secancy 1;
 VARIABLE dipole_back_secancy 1;
 VARIABLE dipole_power 1;
+VARIABLE m5b_required_radius 1;
+VARIABLE m5b_quad_power 1;
+VARIABLE m5b_hex_power 1;
 
 VARIABLE current_map_position 1;  { tracks the distance between the plane where the map is defined and the last magnet surface }
 VARIABLE input_rays 1 500 8;  { tracks the rays that have been defined with SR }
 VARIABLE output_rays 1 500 8;  { tracks the defined rays with the map applied }
 VARIABLE num_rays 1;  { tracks the size of input_rays and output_rays }
-VARIABLE ray_photon_energies 1 500;
+VARIABLE ray_neutron_energies 1 500;
 VARIABLE ray_weights 1 500;
 VARIABLE num_characteristic_rays 1;
 VARIABLE num_dispersive_rays 1;
@@ -158,11 +164,11 @@ PROCEDURE CONFIG_ORDER_AND_VARIABLES order phase_space_dim n_parameters;
 ENDPROCEDURE;
 
 {
-	Tell COSY that we're working with an electron beam.
+	Tell COSY that we're working with a proton beam.
 	must be called after CONFIG_ORDER_AND_VARIABLES. :P
 }
-PROCEDURE CONFIG_AS_ELECTRON_BEAM nominal_energy;
-	RPE nominal_energy; {become electron with}
+PROCEDURE CONFIG_AS_PROTON_BEAM nominal_energy;
+	RPP nominal_energy; {become proton with}
 ENDPROCEDURE;
 
 PROCEDURE DRAW_BEGIN_PATH;
@@ -223,7 +229,7 @@ PROCEDURE transform_rays project_to_detector;
 		IF project_to_detector;
 
 			{ correct for the position and shape of the detector }
-			momentum_ratio := 1 + input_ray(6)/(1 + 0.5110/central_energy);
+			momentum_ratio := SQRT(1 + input_ray(6));
 			x0 := output_ray(1);
 			z0 := current_map_position - p_detector_position;
 			a := output_ray(2) / momentum_ratio;
@@ -332,7 +338,7 @@ PROCEDURE calculate_resolution;
 	VARIABLE weight_sum 1;
 	VARIABLE mean 1;
 	VARIABLE variance 1;
-	VARIABLE photon_energy 1;
+	VARIABLE neutron_energy 1;
 	VARIABLE i_energy 1;
 	VARIABLE i_ray 1;
 	VARIABLE i_depth 1;
@@ -348,29 +354,29 @@ PROCEDURE calculate_resolution;
 	LOOP i_ray 1 num_characteristic_rays;
 		LOOP i_depth 1 2;
 			z := (i_depth - 1.5)*detector_thickness;
-			momentum_ratio := 1 + output_rays(i_ray,6)/(1 + 0.5110/central_energy);
+			momentum_ratio := SQRT(1 + output_rays(i_ray,6));
 			sin_x_angle := output_rays(i_ray,2)/momentum_ratio;
 			ray_x(i_ray*2 + i_depth - 2) := output_rays(i_ray,1) + z*sin_x_angle/SQRT(1 - sin_x_angle^2); {m}
 		ENDLOOP;
 	ENDLOOP;
 
 	LOOP i_energy 1 num_energies;
-		photon_energy := beam_photon_energies(i_energy);
+		neutron_energy := beam_neutron_energies(i_energy);
 		{ calculate the dispersion at each energy }
 		LOOP i_ray 1 num_rays;
 			IF (input_rays(i_ray,1)=0)*(input_rays(i_ray,2)=0)*(input_rays(i_ray,3)=0)*(input_rays(i_ray,4)=0);
-				IF ray_photon_energies(i_ray)=photon_energy-0.5;
+				IF ray_neutron_energies(i_ray)=neutron_energy-0.5;
 					x_right := output_rays(i_ray,1); {m}
-				ELSEIF ray_photon_energies(i_ray)=photon_energy;
+				ELSEIF ray_neutron_energies(i_ray)=neutron_energy;
 					x_center := output_rays(i_ray,1); {m}
-				ELSEIF ray_photon_energies(i_ray)=photon_energy+0.5;
+				ELSEIF ray_neutron_energies(i_ray)=neutron_energy+0.5;
 					x_left := output_rays(i_ray,1); {m}
 				ENDIF;
 			ENDIF;
 		ENDLOOP;
-		IF photon_energy<0.85*central_energy;
+		IF neutron_energy<0.85*central_energy;
 			dispersion(i_energy) := (x_left - x_center)/(0.05*central_energy); {m/MeV}
-		ELSEIF photon_energy>1.15*central_energy;
+		ELSEIF neutron_energy>1.15*central_energy;
 			dispersion(i_energy) := (x_center - x_right)/(0.05*central_energy); {m/MeV}
 		ELSEIF TRUE;
 			dispersion(i_energy) := (x_left - x_right)/(0.10*central_energy); {m/MeV}
@@ -378,14 +384,14 @@ PROCEDURE calculate_resolution;
 		{ calculate the normalization factor for means and variances }
 		weight_sum := 0;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF ray_photon_energies(i_ray)=photon_energy;
+			IF ray_neutron_energies(i_ray)=neutron_energy;
 				weight_sum := weight_sum + 2*ray_weights(i_ray);
 			ENDIF;
 		ENDLOOP;
 		{ calculate the position of the beamspot for each energy }
 		mean := 0;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF ray_photon_energies(i_ray)=photon_energy;
+			IF ray_neutron_energies(i_ray)=neutron_energy;
 				LOOP i_depth 1 2;
 					x := ray_x(i_ray*2 + i_depth - 2);
 					mean := mean + x*ray_weights(i_ray)/weight_sum; {m}
@@ -396,7 +402,7 @@ PROCEDURE calculate_resolution;
 		{ calculate the width of the beamspot at each energy }
 		variance := 0;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF ray_photon_energies(i_ray)=photon_energy;
+			IF ray_neutron_energies(i_ray)=neutron_energy;
 				LOOP i_depth 1 2;
 					x := ray_x(i_ray*2 + i_depth - 2);
 					variance := variance + ((x - mean)/dispersion(i_energy))^2*ray_weights(i_ray)/weight_sum; {MeV^2}
@@ -411,7 +417,7 @@ PROCEDURE calculate_resolution;
 			resolution(i_energy) := 1/0;  { set the resolution to infinity }
 		ENDIF;
 		LOOP i_ray 1 num_characteristic_rays;
-			IF ray_photon_energies(i_ray)=photon_energy;
+			IF ray_neutron_energies(i_ray)=neutron_energy;
 				IF NOT(ray_is_valid(i_ray));
 					resolution(i_energy) := 1/0;  { also abandon this calculation and set resolution to infinity if any miss the detector }
 				ENDIF;
@@ -455,7 +461,7 @@ PROCEDURE evaluate_spectrometer;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
-	system_length := drift_pre_aperture + p_m5_length + p_drift_pre_bend + dipole_length + p_detector_position; {m}
+	system_length := drift_pre_aperture + p_m5a_length + p_drift_pre_bend + dipole_length + p_drift_post_bend + p_m5b_length + p_detector_position; {m}
 	IF p_detector_curvature#0;
 		detector_left_size := SIN(detector_left*p_detector_curvature)/p_detector_curvature;
 		detector_right_size := SIN(detector_right*p_detector_curvature)/p_detector_curvature;
@@ -464,12 +470,12 @@ PROCEDURE evaluate_spectrometer;
 		detector_right_size := detector_right;
 	ENDIF;
 	vertices(1) := -drift_pre_aperture & 0; {foil}
-	vertices(2) := p_m5_length + p_drift_pre_bend &
+	vertices(2) := p_m5a_length + p_drift_pre_bend &
 				   -dipole_bend_radius + dipole_max_radius; {magnet front left}
-	vertices(3) := p_m5_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(p_dipole_bend_angle,90)/180*PI) &
+	vertices(3) := p_m5a_length + p_drift_pre_bend + dipole_max_radius*SIN(MIN(p_dipole_bend_angle,90)/180*PI) &
 				   -dipole_bend_radius + dipole_max_radius*COS(MIN(p_dipole_bend_angle,90)/180*PI); {magnet back left}
-	vertices(4) := p_m5_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + p_detector_position*COS(p_dipole_bend_angle/180*PI) &
-				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - p_detector_position*SIN(p_dipole_bend_angle/180*PI); {detector center}
+	vertices(4) := p_m5a_length + p_drift_pre_bend + dipole_bend_radius*SIN(p_dipole_bend_angle/180*PI) + (p_drift_post_bend + p_m5b_length + p_detector_position)*COS(p_dipole_bend_angle/180*PI) &
+				   -dipole_bend_radius + dipole_bend_radius*COS(p_dipole_bend_angle/180*PI) - (p_drift_post_bend + p_m5b_length + p_detector_position)*SIN(p_dipole_bend_angle/180*PI); {detector center}
 	IF p_detector_curvature#0;
 		detector_bend := (1 - COS(detector_left_size*p_detector_curvature))/p_detector_curvature;
 	ELSEIF p_detector_curvature=0;
@@ -496,28 +502,23 @@ PROCEDURE evaluate_spectrometer;
 	ENDLOOP;
 
 	{ estimate the power draw }
-	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
-	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
+	m5a_quad_power := (2*p_m5a_quad_field*p_m5a_radius/1.26e-6)^2 * p_m5a_length * 16.78e-9/0.01^2;
+	m5b_quad_power := (2*p_m5b_quad_field*p_m5b_radius/1.26e-6)^2 * p_m5b_length * 16.78e-9/0.01^2;
+	m5b_hex_power := (3*p_m5b_hex_field*p_m5b_radius/1.26e-6)^2 * p_m5b_length * 16.78e-9/0.01^2;
 	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * p_dipole_bend_angle/180*PI*dipole_length * 16.78e-9/0.01^2;
 
 ENDPROCEDURE;
 
 {============ CORE FUNCTIONS ============}
 
-FUNCTION calculate_photon_angle photon_energy tan_electron_angle;
-	calculate_photon_angle := PI - 2*ATAN((1 + photon_energy/0.5110)*tan_electron_angle);
-ENDFUNCTION;
-
-FUNCTION calculate_electron_energy photon_energy photon_angle;
-    calculate_electron_energy := photon_energy*(1 - 1/(1 + photon_energy/0.5110*(1 - COS(photon_angle))));
+FUNCTION calculate_proton_energy neutron_energy tan_proton_angle;
+    calculate_proton_energy := neutron_energy/(1 + tan_proton_angle^2);
 ENDFUNCTION;
 
 PROCEDURE gen_rays;
 	VARIABLE i_energy 1;
 	VARIABLE step 1;
-	VARIABLE photon_angle 1;
-	VARIABLE photon_energy 1;
-	VARIABLE energy_fraction 1;
+	VARIABLE neutron_energy 1;
 	VARIABLE color 1;
 	VARIABLE momentum_ratio 1;
 	VARIABLE theta_foil 1;
@@ -559,7 +560,7 @@ PROCEDURE gen_rays;
 
 			{ iterate over all the energies }
 			LOOP i_energy 1 num_energies;
-				photon_energy := beam_photon_energies(i_energy);
+				neutron_energy := beam_neutron_energies(i_energy);
 				color := beam_colors(i_energy);
 
 				{ calculate the angle }
@@ -568,21 +569,19 @@ PROCEDURE gen_rays;
 
 				{ calculate the energy based on kinematics, assuming perfect collimation }
 				tan_angle := SQRT(tan_x_angle^2 + tan_y_angle^2);
-				photon_angle := calculate_photon_angle(photon_energy, tan_angle);
-				energy := calculate_electron_energy(photon_energy, photon_angle);
+				energy := calculate_proton_energy(neutron_energy, tan_angle);
 
 				{ this momentum ratio is needed to compensate for COSY's weird transverse momentum parameterization }
-				momentum_ratio := (energy + 0.5110)/(central_energy + 0.5110);
+				momentum_ratio := SQRT(energy/central_energy);
 
 				SET_RAY x_foil momentum_ratio*tan_x_angle
 						y_foil momentum_ratio*tan_y_angle
 						0 energy/central_energy-1
 						0 0 color;
-				ray_photon_energies(num_rays) := photon_energy;
+				ray_neutron_energies(num_rays) := neutron_energy;
 
 				{ calculate this ray's weight according to its cross section and the volume of phase space it takes up }
-				energy_fraction := 1 - energy/photon_energy;
-				ray_weights(num_rays) := energy_fraction^2*(energy_fraction + 1/energy_fraction - SIN(photon_angle)^2);
+				ray_weights(num_rays) := 1/SQRT(1 + tan_angle^2);
 				IF (x_aperture#0)+(y_aperture#0);
 					ray_weights(num_rays) := ray_weights(num_rays)*3/8;
 				ENDIF;
@@ -597,10 +596,10 @@ PROCEDURE gen_rays;
 	{ dispersive rays }
 	LOOP i_energy 1 num_energies;
 		LOOP step -0.5 0.5 1.0;
-			photon_energy := beam_photon_energies(i_energy) + step;
-			energy := calculate_electron_energy(photon_energy, PI);
+			neutron_energy := beam_neutron_energies(i_energy) + step;
+			energy := calculate_proton_energy(neutron_energy, 0);
 			SET_RAY 0 0 0 0 0 energy/central_energy-1 0 0 1;
-			ray_photon_energies(num_rays) := photon_energy;
+			ray_neutron_energies(num_rays) := neutron_energy;
 			ray_weights(num_rays) := 0;
 		ENDLOOP;
 	ENDLOOP;
@@ -613,15 +612,15 @@ PROCEDURE config_spectrometer;
 	VARIABLE i 1;
 
 	order := 12;
-	central_energy := 13.5; {MeV}
+	central_energy := 15; {MeV}
 	fringe_field_mode := 2;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
-	CONFIG_AS_ELECTRON_BEAM central_energy;
+	CONFIG_AS_PROTON_BEAM central_energy;
 	CONFIG_FRINGE_FIELD fringe_field_mode;
 
 	num_energies := 5;
 	LOOP i 1 num_energies;
-		beam_photon_energies(i) := 10 + 8*(i - 1)/(num_energies - 1);
+		beam_neutron_energies(i) := 10 + 10*(i - 1)/(num_energies - 1);
 	ENDLOOP;
 	beam_colors(1) := 4; {yellow}
 	beam_colors(2) := 6; {chartreuse}
@@ -636,7 +635,7 @@ PROCEDURE elt_spectrometer;
 	VARIABLE shape_out 1 5;
 	VARIABLE shape_zero 1 5;
 
-	central_momentum := (0.5110 + central_energy)*1.602e-13/2.998e8;
+	central_momentum := SQRT(2*1.673e-27*central_energy*1.602e-13);
 	dipole_bend_radius := central_momentum/(1.602e-19*p_dipole_field);
 	dipole_length := p_dipole_bend_angle/180*PI*dipole_bend_radius;
 	IF p_dipole_bend_angle>180;
@@ -674,10 +673,10 @@ PROCEDURE elt_spectrometer;
 
 	ELT_APERTURE MAX(aperture_width, aperture_height)/2;
 
-	ELT_MULTIPOLE_5 p_m5_length p_m5_quad_field p_m5_hex_field 0 0 0 p_m5_radius;
+	ELT_MULTIPOLE_5 p_m5a_length p_m5a_quad_field 0 0 0 0 p_m5a_radius;
 
 	calculate_beam_size FALSE;
-	m5_required_radius := beam_max_r;
+	m5a_required_radius := beam_max_r;
 
 	ELT_DRIFT_LENGTH p_drift_pre_bend;
 
@@ -695,6 +694,13 @@ PROCEDURE elt_spectrometer;
 	dipole_min_bend_radius := MIN(dipole_min_bend_radius, dipole_bend_radius+beam_min_x);
 	dipole_max_bend_radius := MAX(dipole_max_bend_radius, dipole_bend_radius+beam_max_x);
 
+	ELT_DRIFT_LENGTH p_drift_post_bend;
+
+	ELT_MULTIPOLE_5 p_m5b_length p_m5b_quad_field p_m5b_hex_field 0 0 0 p_m5b_radius;
+
+	calculate_beam_size FALSE;
+	m5b_required_radius := beam_max_r;
+
 	ELT_DRIFT_LENGTH p_detector_position;
 
 ENDPROCEDURE;
@@ -709,7 +715,7 @@ PROCEDURE main;
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
 	{ set the display mode (0 means flatten it; 1 means show in real space) }
-	y_scale := 0;
+	y_scale := 1;
 
 	IF output_mode=1;
 		out := 6;
@@ -727,37 +733,41 @@ PROCEDURE main;
 	config_spectrometer;
 
 	{ set upper bound for the foil dimensions }
-	foil_width := 0.03;
-	foil_height := 0.03;
-	aperture_width := 0.04;
-	aperture_height := 0.04;
-	drift_pre_aperture := 0.40;
+	foil_width := 0.016;
+	foil_height := 0.016;
+	aperture_width := 0.005;
+	aperture_height := 0.020;
+	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	p_m5_quad_field := 0.024293813495634364; {{PARAM |min=0 |max=0.5 |bias=0 |unit=T}}
-	p_m5_hex_field := 0;
-	p_dipole_field := 0.15688222105032823; {{PARAM |min=0.023 |max=1.1 |bias=0 |unit=T}}
-	p_m5_length := 0.17225472220056265; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
-	p_m5_radius := p_m5_length/4;
-	p_dipole_bend_angle := 60;
+	p_m5a_quad_field := -0.5996051892294291; {{PARAM |min=-1.1 |max=0 |bias=0 |unit=T}}
+	p_dipole_field := 1.1; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5b_quad_field := -0.3549416910268382; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5b_hex_field := 0.010248908638884799; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5a_length := 0.0484965461241958; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_m5a_radius := p_m5a_length/4;
+	p_dipole_bend_angle := 33.13214720145813; {{PARAM |min=5 |max=90 |bias=0 |unit=T}}
 	p_dipole_halfwidth := 0.15;
-	p_drift_pre_bend := 0.09310480034985447; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-	p_shape_in_1 := 1.0; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 5.654597771752586; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 6.428557708920857; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_m5b_length := 0.18577046660604796; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_m5b_radius := p_m5b_length/2;
+	p_drift_pre_bend := 0.41836565937376335; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
+	p_drift_post_bend := 0.4166981225678556; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.7867111534458006; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 9.990553355038944; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 20.1816338504532; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
 	p_shape_in_5 := 0;
-	p_shape_out_1 := -0.42236338877911334; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -1.360893470205916; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 0.005811376549809305; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := -0.9999999999999999; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -2.262899299440052; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 2.890901871217996; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 	p_shape_out_5 := 0;
-	p_detector_position := 0.6782198698989073; {{PARAM |min=0.05 |max=2 |bias=0 |unit=m}}
-    p_detector_tilt := 0.0; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-    p_detector_curvature := 0.0; {{PARAM |min=-5 |max=0 |bias=0 |unit=1/m}}
+	p_detector_position := 1.8325782189451536; {{PARAM |min=0.05 |max=10 |bias=0 |unit=m}}
+    p_detector_tilt := 0.0;
+    p_detector_curvature := 0.0;
 
 	{ set the detector thickness }
-	detector_thickness := 0.05; {m}
+	detector_thickness := 0.001; {m}
 
 	{ ---- spectrometer definition ---- }
 
@@ -772,15 +782,19 @@ PROCEDURE main;
 	WRITE out 'foil_height := '&SF(foil_height, '(G22.15)')&';';
 	WRITE out 'aperture_width := '&SF(aperture_width, '(G22.15)')&';';
 	WRITE out 'aperture_height := '&SF(aperture_height, '(G22.15)')&';';
-	WRITE out 'p_m5_quad_field := '&SF(p_m5_quad_field, '(G22.15)')&';';
-	WRITE out 'p_m5_hex_field := '&SF(p_m5_hex_field, '(G22.15)')&';';
+	WRITE out 'p_m5a_quad_field := '&SF(p_m5a_quad_field, '(G22.15)')&';';
+	WRITE out 'p_m5b_quad_field := '&SF(p_m5b_quad_field, '(G22.15)')&';';
+	WRITE out 'p_m5b_hex_field := '&SF(p_m5b_hex_field, '(G22.15)')&';';
 	WRITE out 'p_dipole_field := '&SF(p_dipole_field, '(G22.15)')&';';
-	WRITE out 'p_m5_radius := '&SF(p_m5_radius, '(G22.15)')&';';
-	WRITE out 'p_m5_length := '&SF(p_m5_length, '(G22.15)')&';';
+	WRITE out 'p_m5a_radius := '&SF(p_m5a_radius, '(G22.15)')&';';
+	WRITE out 'p_m5b_radius := '&SF(p_m5b_radius, '(G22.15)')&';';
+	WRITE out 'p_m5a_length := '&SF(p_m5a_length, '(G22.15)')&';';
+	WRITE out 'p_m5b_length := '&SF(p_m5b_length, '(G22.15)')&';';
 	WRITE out 'p_dipole_halfwidth := '&SF(p_dipole_halfwidth, '(G22.15)')&';';
 	WRITE out 'p_dipole_bend_angle := '&SF(p_dipole_bend_angle, '(G22.15)')&';';
 	WRITE out 'drift_pre_aperture := '&SF(drift_pre_aperture, '(G22.15)')&';';
 	WRITE out 'p_drift_pre_bend := '&SF(p_drift_pre_bend, '(G22.15)')&';';
+	WRITE out 'p_drift_post_bend := '&SF(p_drift_post_bend, '(G22.15)')&';';
 	WRITE out 'p_shape_in_1 := '&SF(p_shape_in_1, '(G22.15)')&';';
 	WRITE out 'p_shape_in_2 := '&SF(p_shape_in_2, '(G22.15)')&';';
 	WRITE out 'p_shape_in_3 := '&SF(p_shape_in_3, '(G22.15)')&';';
@@ -829,10 +843,11 @@ PROCEDURE main;
 
 	WRITE out '';
 
-	WRITE out 'm5 beam buffer:' p_m5_radius-m5_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'm5 quad power:' m5_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1000 |unit=W}}
-	WRITE out 'm5 hex power:' m5_hex_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1000 |unit=W}}
-	WRITE out 'dipole distance buffer:' p_drift_pre_bend-p_m5_radius; {{CONSTRAINT |min=0.05 |max=inf |bias=0 |unit=m}}
+	WRITE out 'm5a beam buffer:' p_m5a_radius-m5a_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'm5a beam buffer:' p_m5b_radius-m5b_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
+	WRITE out 'm5a quad power:' m5a_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
+	WRITE out 'm5b quad power:' m5b_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
+	WRITE out 'm5b hex power:' m5b_hex_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
@@ -844,7 +859,7 @@ PROCEDURE main;
 	WRITE out 'system length:' system_length*100 'cm';
 	WRITE out 'system depth:' system_depth*100 'cm';
 	WRITE out 'system width:' system_width*100 'cm';
-	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=-inf |max=1000 |bias=-1/5.0 |unit=cm}}
+	WRITE out 'system diagonal:' system_diagonal*100 'cm'; {{CONSTRAINT |min=-inf |max=10000 |bias=-1/5.0 |unit=cm}}
 
 	WRITE out 'beam centroid @ 10MeV:' position(1)*100 'cm';
 	WRITE out 'beam centroid @ 12MeV:' position(2)*100 'cm';
@@ -852,11 +867,11 @@ PROCEDURE main;
 	WRITE out 'beam centroid @ 16MeV:' position(4)*100 'cm';
 	WRITE out 'beam centroid @ 18MeV:' position(5)*100 'cm';
 
-	WRITE out 'dispersion @ 10MeV:' dispersion(1)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=20 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 12MeV:' dispersion(2)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=20 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 14MeV:' dispersion(3)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=20 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 16MeV:' dispersion(4)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=20 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 18MeV:' dispersion(5)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=20 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 10MeV:' dispersion(1)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 12MeV:' dispersion(2)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 14MeV:' dispersion(3)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 16MeV:' dispersion(4)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 18MeV:' dispersion(5)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
 
 	WRITE out 'algebraic resolution @ 10MeV:' resolution(1)*1000 'keV'; {{OBJECTIVE}}
 	WRITE out 'algebraic resolution @ 12MeV:' resolution(2)*1000 'keV'; {{OBJECTIVE}}
