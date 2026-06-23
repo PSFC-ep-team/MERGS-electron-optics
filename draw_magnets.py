@@ -350,7 +350,8 @@ class Path:
 
 
 if __name__ == "__main__":
-	for dirpath, dirnames, filenames in os.walk("."):
-		for filename in filenames:
-			if filename.endswith(".fox") and filename != "cosy.fox" and not re.match(r"^proc[0-9]+", filename):
-				draw_magnets(os.path.join(dirpath, filename[:-4]))
+	# for dirpath, dirnames, filenames in os.walk("."):
+	# 	for filename in filenames:
+	# 		if filename.endswith(".fox") and filename != "cosy.fox" and not re.match(r"^proc[0-9]+", filename):
+	# 			draw_magnets(os.path.join(dirpath, filename[:-4]))
+	draw_magnets("generated/mergs_optimal_electron_optics")

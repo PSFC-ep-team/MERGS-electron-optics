@@ -621,8 +621,8 @@ class Parameter:
 
 if __name__ == '__main__':
 	optimize_electron_optics(
-		order=9, method="COBYQA",
 		.016, .30, .005, .02, 10_000,
+		order=9, method="COBYQA",
 		save_name="mergs_optimal_electron_optics",
 	)
 
