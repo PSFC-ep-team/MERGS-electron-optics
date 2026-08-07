@@ -622,38 +622,6 @@ class Parameter:
 if __name__ == '__main__':
 	optimize_electron_optics(
 		.016, .30, .005, .02, 10_000,
-		order=9, method="COBYQA",
+		order=9, method="COBYQA+SLSQP",
 		save_name="mergs_optimal_electron_optics",
 	)
-
-	# from numpy import where, linspace
-	# import matplotlib.pyplot as plt
-	#
-	# script = load_script("MERGS_electron_optics", .03, .50, .03, 5)
-	# center_point = array([parameter.default for parameter in script.parameters])
-	# uppers = array([parameter.max for parameter in script.parameters])
-	# lowers = array([parameter.min for parameter in script.parameters])
-	# start_point = center_point - (uppers - lowers)*0.05
-	# start_point = where(start_point < lowers, 2*lowers - start_point, start_point)
-	# end_point = center_point + (uppers - lowers)*0.05
-	# end_point = where(end_point > uppers, 2*uppers - end_point, end_point)
-	#
-	# xs = linspace(0, 1, 501)
-	# ys = [objective_function(start_point*(1 - x) + end_point*x, script, 0.01, constraint_handling="ignore", cache={}) for x in xs]
-	# parameters = []
-	# for x in xs:
-	# 	results = run_cosy(script, start_point*(1 - x) + end_point*x, output_mode="none")
-	# 	parameters.append((results["p_detector_position"], results["p_detector_tilt"], results["p_detector_curvature"]))
-	# parameters = array(parameters)
-	# plt.figure()
-	# plt.plot(xs, ys)
-	# plt.xlim(0, 1)
-	# plt.ylim(15, 21)
-	# plt.grid()
-	# plt.figure()
-	# plt.plot(xs, parameters[:, 0], label="z0")
-	# plt.plot(xs, parameters[:, 1], label="β")
-	# plt.plot(xs, parameters[:, 2], label="κ")
-	# plt.xlim(0, 1)
-	# plt.grid()
-	# plt.show()

@@ -612,7 +612,7 @@ PROCEDURE config_spectrometer;
 	VARIABLE i 1;
 
 	order := 12;
-	central_energy := 15; {MeV}
+	central_energy := 14; {MeV}
 	fringe_field_mode := 2;
 	CONFIG_ORDER_AND_VARIABLES order 3 0; {calculation order, account for chromatic effects, no "knobs"}
 	CONFIG_AS_PROTON_BEAM central_energy;
@@ -620,7 +620,7 @@ PROCEDURE config_spectrometer;
 
 	num_energies := 5;
 	LOOP i 1 num_energies;
-		beam_neutron_energies(i) := 10 + 10*(i - 1)/(num_energies - 1);
+		beam_neutron_energies(i) := 10 + 8*(i - 1)/(num_energies - 1);
 	ENDLOOP;
 	beam_colors(1) := 4; {yellow}
 	beam_colors(2) := 6; {chartreuse}
@@ -715,7 +715,7 @@ PROCEDURE main;
 	{ set the output mode (0: command line, 1: GUI, 2: direct-to-PDF) }
 	output_mode := 1;
 	{ set the display mode (0 means flatten it; 1 means show in real space) }
-	y_scale := 1;
+	y_scale := 0;
 
 	IF output_mode=1;
 		out := 6;
@@ -740,29 +740,29 @@ PROCEDURE main;
 	drift_pre_aperture := 0.30;
 
 	{ set the electron-optic parameters }
-	p_m5a_quad_field := -0.5996051892294291; {{PARAM |min=-1.1 |max=0 |bias=0 |unit=T}}
-	p_dipole_field := 1.1; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
-	p_m5b_quad_field := -0.3549416910268382; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
-	p_m5b_hex_field := 0.010248908638884799; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
-	p_m5a_length := 0.0484965461241958; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_m5a_quad_field := -0.610337793720184; {{PARAM |min=-1.1 |max=0 |bias=0 |unit=T}}
+	p_dipole_field := 1.0999999999127839; {{PARAM |min=0.01 |max=1.1 |bias=0 |unit=T}}
+	p_m5b_quad_field := -0.503264843551665; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5b_hex_field := 0.01133378527275084; {{PARAM |min=-1.1 |max=1.1 |bias=0 |unit=T}}
+	p_m5a_length := 0.11083985890852624; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.02 |unit=m}}
 	p_m5a_radius := p_m5a_length/4;
-	p_dipole_bend_angle := 33.13214720145813; {{PARAM |min=5 |max=90 |bias=0 |unit=T}}
+	p_dipole_bend_angle := 34.57149740378835; {{PARAM |min=5 |max=90 |bias=0 |unit=T}}
 	p_dipole_halfwidth := 0.15;
-	p_m5b_length := 0.18577046660604796; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.01 |unit=m}}
+	p_m5b_length := 0.1695407881753054; {{PARAM |min=0.04 |max=1.00 |bias=-1/0.02 |unit=m}}
 	p_m5b_radius := p_m5b_length/2;
-	p_drift_pre_bend := 0.41836565937376335; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
-	p_drift_post_bend := 0.4166981225678556; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
-	p_shape_in_1 := 0.7867111534458006; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_in_2 := 9.990553355038944; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_in_3 := 20.1816338504532; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_drift_pre_bend := 0.3118639351146157; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
+	p_drift_post_bend := 0.46688132573904123; {{PARAM |min=0.30 |max=10 |bias=0 |unit=m}}
+	p_shape_in_1 := 0.5682143351577098; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_in_2 := 9.99999999651348; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_in_3 := 26.724864009578923; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_in_4 := 0;
 	p_shape_in_5 := 0;
-	p_shape_out_1 := -0.9999999999999999; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
-	p_shape_out_2 := -2.262899299440052; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
-	p_shape_out_3 := 2.890901871217996; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
+	p_shape_out_1 := -0.9999999998137531; {{PARAM |min=-1 |max=1 |bias=0 |unit=rad}}
+	p_shape_out_2 := -2.7764922020917564; {{PARAM |min=-10 |max=10 |bias=0 |unit=1/m}}
+	p_shape_out_3 := 5.844759947229256; {{PARAM |min=-100 |max=100 |bias=0 |unit=1/m^2}}
 	p_shape_out_4 := 0;
 	p_shape_out_5 := 0;
-	p_detector_position := 1.8325782189451536; {{PARAM |min=0.05 |max=10 |bias=0 |unit=m}}
+	p_detector_position := 1.044010556792438; {{PARAM |min=0.05 |max=10 |bias=0 |unit=m}}
     p_detector_tilt := 0.0;
     p_detector_curvature := 0.0;
 
@@ -809,7 +809,7 @@ PROCEDURE main;
 	WRITE out 'p_detector_tilt := '&SF(p_detector_tilt, '(G22.15)')&';';
 	WRITE out 'p_detector_curvature := '&SF(p_detector_curvature, '(G22.15)')&';';
 	WRITE out '';
-	WRITE out 'dipole_length := '&SF(dipole_length, '(G22.15)')&';'; {{CONSTRAINT |min=-inf |max=inf |bias=-1/0.01 |unit=m}}
+	WRITE out 'dipole_length := '&SF(dipole_length, '(G22.15)')&';'; {{CONSTRAINT |min=-inf |max=inf |bias=-1/0.02 |unit=m}}
 	WRITE out 'dipole_max_bend_radius := '&SF(dipole_max_bend_radius, '(G22.15)')&';';
 	WRITE out 'dipole_central_bend_radius := '&SF(dipole_bend_radius, '(G22.15)')&';';
 	WRITE out 'dipole_min_bend_radius := '&SF(dipole_min_bend_radius, '(G22.15)')&';';
@@ -845,9 +845,9 @@ PROCEDURE main;
 
 	WRITE out 'm5a beam buffer:' p_m5a_radius-m5a_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'm5a beam buffer:' p_m5b_radius-m5b_required_radius; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
-	WRITE out 'm5a quad power:' m5a_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
-	WRITE out 'm5b quad power:' m5b_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
-	WRITE out 'm5b hex power:' m5b_hex_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/10000 |unit=W}}
+	WRITE out 'm5a quad power:' m5a_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/20000 |unit=W}}
+	WRITE out 'm5b quad power:' m5b_quad_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/20000 |unit=W}}
+	WRITE out 'm5b hex power:' m5b_hex_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/20000 |unit=W}}
 	WRITE out 'dipole side overhang buffer:' dipole_min_bend_radius-dipole_gap_height*1.5; {{CONSTRAINT |min=0 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole front secancy:' dipole_front_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
@@ -867,11 +867,11 @@ PROCEDURE main;
 	WRITE out 'beam centroid @ 16MeV:' position(4)*100 'cm';
 	WRITE out 'beam centroid @ 18MeV:' position(5)*100 'cm';
 
-	WRITE out 'dispersion @ 10MeV:' dispersion(1)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 12MeV:' dispersion(2)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 14MeV:' dispersion(3)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 16MeV:' dispersion(4)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
-	WRITE out 'dispersion @ 18MeV:' dispersion(5)*100 'cm/MeV'; {{CONSTRAINT |min=2 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 10MeV:' dispersion(1)*100 'cm/MeV'; {{CONSTRAINT |min=1.9 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 12MeV:' dispersion(2)*100 'cm/MeV'; {{CONSTRAINT |min=1.9 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 14MeV:' dispersion(3)*100 'cm/MeV'; {{CONSTRAINT |min=1.9 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 16MeV:' dispersion(4)*100 'cm/MeV'; {{CONSTRAINT |min=1.9 |max=10 |bias=0 |unit=cm/MeV}}
+	WRITE out 'dispersion @ 18MeV:' dispersion(5)*100 'cm/MeV'; {{CONSTRAINT |min=1.9 |max=10 |bias=0 |unit=cm/MeV}}
 
 	WRITE out 'algebraic resolution @ 10MeV:' resolution(1)*1000 'keV'; {{OBJECTIVE}}
 	WRITE out 'algebraic resolution @ 12MeV:' resolution(2)*1000 'keV'; {{OBJECTIVE}}
