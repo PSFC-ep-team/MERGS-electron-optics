@@ -48,6 +48,7 @@ VARIABLE dipole_gap_height 1;
 VARIABLE dipole_front_secancy 1;
 VARIABLE dipole_back_secancy 1;
 VARIABLE dipole_power 1;
+VARIABLE stray_field 1;
 
 VARIABLE current_map_position 1;  { tracks the distance between the plane where the map is defined and the last magnet surface }
 VARIABLE input_rays 1 500 8;  { tracks the rays that have been defined with SR }
@@ -431,6 +432,7 @@ PROCEDURE evaluate_spectrometer;
 	VARIABLE detector_right_size 1;
 	VARIABLE vertices 2 6;
 	VARIABLE detector_bend 1;
+	VARIABLE distance_ratio 1;
 	VARIABLE i 1;
 	VARIABLE j 1;
 
@@ -499,6 +501,10 @@ PROCEDURE evaluate_spectrometer;
 	m5_quad_power := (2*p_m5_quad_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
 	m5_hex_power := (3*p_m5_hex_field*p_m5_radius/1.26e-6)^2 * p_m5_length * 16.78e-9/0.01^2;
 	dipole_power := (p_dipole_field*dipole_gap_height/1.26e-6)^2 * p_dipole_bend_angle/180*PI*dipole_length * 16.78e-9/0.01^2;
+
+	{ estimate the stray field at the detector }
+	distance_ratio := p_detector_position/dipole_gap_height/SQRT(1 + p_shape_out_1^2);
+	stray_field := p_dipole_field/(1 + EXP(0.478959 + 1.911289*distance_ratio - 1.185953*distance_ratio^2 + 1.630554*distance_ratio^3 - 1.082657*distance_ratio^4 + 0.318111*distance_ratio^5));
 
 ENDPROCEDURE;
 
@@ -838,6 +844,7 @@ PROCEDURE main;
 	WRITE out 'dipole back secancy:' dipole_back_secancy; {{CONSTRAINT |min=0.001 |max=inf |bias=0 |unit=m}}
 	WRITE out 'dipole aspect ratio:' dipole_length/dipole_gap_height; {{CONSTRAINT |min=2 |max=inf |bias=0 |unit=}}
 	WRITE out 'dipole power:' dipole_power; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1000 |unit=W}}
+	WRITE out 'stray field:' stray_field; {{CONSTRAINT |min=-inf |max=0.010 |bias=0 |unit=T}}
 	WRITE out 'focal plane length:' focal_plane_length*100 'cm';
 	WRITE out 'focal plane height:' focal_plane_height*100 'cm'; {{CONSTRAINT |min=-inf |max=inf |bias=-1/1.0 |unit=cm}}
 	WRITE out 'dipole gap height:' dipole_gap_height*100 'cm';
