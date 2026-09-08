@@ -453,7 +453,7 @@ PROCEDURE evaluate_spectrometer;
 	z_face := p_shape_in_1*x+p_shape_in_2*x^2+p_shape_in_3*x^3+p_shape_in_4*x^4+p_shape_in_5*x^5;
 	dipole_front_secancy := z_arc - z_face; {must be positive for the geometry to be well defined}
 	{ then check the back face }
-	z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3+p_shape_out_4*x^4+p_shape_in_5*x^5;
+	z_face := p_shape_out_1*x+p_shape_out_2*x^2+p_shape_out_3*x^3+p_shape_out_4*x^4+p_shape_out_5*x^5;
 	dipole_back_secancy := z_arc - z_face;  {must be positive for the geometry to be well defined}
 
 	{ calculate the dimensions of the system }
